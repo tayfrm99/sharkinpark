@@ -3,6 +3,15 @@ const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
+const http = require('http'); //forhealthserver
+
+// little health server
+http.createServer((_, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('ok');
+}).listen(process.env.PORT || 3000, () => {
+  console.log(`Healthcheck listening on port ${process.env.PORT || 3000}`);
+});
 
 const client = new Client({
   intents: [
