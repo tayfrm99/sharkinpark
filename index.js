@@ -5,12 +5,12 @@ const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http'); //forhealthserver
 
-// little health server
+//health server
 http.createServer((_, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('ok');
-}).listen(process.env.PORT || 3000, () => {
-  console.log(`Healthcheck listening on port ${process.env.PORT || 3000}`);
+}).listen(9304, () => {
+  console.log('Healthcheck listening on port 9304');
 });
 
 const client = new Client({
