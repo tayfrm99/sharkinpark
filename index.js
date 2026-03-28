@@ -11,6 +11,14 @@ const client = new Client({
   ]
 });
 
+//thissoitsaysif its online or not in the console
+client.once('ready', () => {
+  console.log('========================');
+  console.log(`✅ Logged in as: ${client.user.tag}`);
+  console.log(`📊 Servers: ${client.guilds.cache.size}`);
+  console.log('========================');
+});
+
 client.on('guildMemberAdd', async (member) => {
   try {
     const avatarURL = member.user.displayAvatarURL({ extension: 'png', size: 512 });
@@ -18,8 +26,11 @@ client.on('guildMemberAdd', async (member) => {
     const response = await fetch(avatarURL);
     const avatarBuffer = await response.buffer();
 
+// this thing streches stuff!!!
     const resizedAvatar = await sharp(avatarBuffer)
-      .resize(309, 136)
+      .resize(309, 136, {
+        fit: 'fill'
+      })
       .toBuffer();
 
     const finalImage = await sharp(path.join(__dirname, 'template.png'))
@@ -33,19 +44,21 @@ client.on('guildMemberAdd', async (member) => {
       .png()
       .toBuffer();
 
-    const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
+    const attachment = new AttachmentBuilder(finalImage, {
+      name: 'welcome.png'
+    });
 
     const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
 
     if (channel) {
+//this sends the final le image
       channel.send({
-        content: `Welcome ${member}!`,
         files: [attachment]
       });
     }
 
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error:', err);
   }
 });
 
