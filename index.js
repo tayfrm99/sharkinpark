@@ -10,7 +10,7 @@ http.createServer((_, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('ok');
 }).listen(9304, () => {
-  console.log('Healthcheck listening on port 9304');
+  console.log('Healthcheck listening on port 10000'); //10000 or 9304
 });
 
 const client = new Client({
