@@ -5,6 +5,7 @@ const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs/promises');
+const { execFileSync } = require('child_process');
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -16,6 +17,7 @@ console.log('========================================');
 // ── Env var check ─────────────────────────────────────────────────────────────
 console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
 console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
+assertArialBlackAvailableOnLinux();
 
 // ── Health server ─────────────────────────────────────────────────────────────
 // uses PORT env var so Render.com can detect it
@@ -91,6 +93,32 @@ function escapeSvgText(text) {
     .replace(/'/g, '&#39;');
 }
 
+function assertArialBlackAvailableOnLinux() {
+  if (process.platform !== 'linux') return;
+
+  let fontFamilies;
+  try {
+    fontFamilies = execFileSync('fc-list', [':', 'family'], {
+      encoding: 'utf8'
+    });
+  } catch (err) {
+    throw new Error(`Failed to check system fonts with fc-list: ${err.message}`);
+  }
+
+  const hasArialBlack = fontFamilies
+    .split('\n')
+    .some((line) =>
+      line
+        .split(',')
+        .map((name) => name.trim().toLowerCase())
+        .includes('arial black')
+    );
+
+  if (!hasArialBlack) {
+    throw new Error('Required font "Arial Black" is not installed on this Linux host.');
+  }
+}
+
 async function buildTextImage(username, width, height, offsetX, offsetY) {
   let fontSize = 220;
   while (fontSize > 20 && username.length * fontSize * 0.6 >= 1800) {
@@ -102,7 +130,7 @@ async function buildTextImage(username, width, height, offsetX, offsetY) {
     <svg width="2000" height="400">
       <style>
         text {
-          font-family: Impact, Arial Black, sans-serif;
+          font-family: "Arial Black";
           font-size: ${fontSize}px;
           font-weight: 900;
           text-anchor: middle;
