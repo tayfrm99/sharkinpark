@@ -136,7 +136,7 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (!message.content.startsWith('!wel ')) return;
 
-  const userId = message.content.slice(3).trim().replace(/[<@!>]/g, '');
+  const userId = message.content.slice(5).trim().replace(/[<@!>]/g, '');
   if (!userId) {
     return message.reply('Usage: `!wel <user_id>`');
   }
@@ -152,4 +152,11 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-client.login(process.env.TOKEN);
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
+});
+
+client.login(process.env.TOKEN).catch((err) => {
+  console.error('Failed to login:', err);
+  process.exit(1);
+});
