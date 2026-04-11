@@ -5,15 +5,29 @@ const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
 
-// health server - uses PORT env var so Render.com can detect it
+// ── Startup banner ────────────────────────────────────────────────────────────
+console.log('========================================');
+console.log('  sharkinpark bot starting up');
+console.log(`  ${new Date().toISOString()}`);
+console.log(`  Node ${process.version}  PID ${process.pid}`);
+console.log('========================================');
+
+// ── Env var check ─────────────────────────────────────────────────────────────
+console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
+console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
+
+// ── Health server ─────────────────────────────────────────────────────────────
+// uses PORT env var so Render.com can detect it
 const PORT = process.env.PORT || 10000;
 http.createServer((_, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('i am alive burrp weasel.pages.dev');
 }).listen(PORT, () => {
-  console.log(`Healthcheck listening on port ${PORT}`);
+  console.log(`[http] healthcheck server listening on port ${PORT}`);
 });
 
+// ── Discord client ─────────────────────────────────────────────────────────────
+console.log('[discord] creating client...');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -22,6 +36,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+console.log('[discord] client created, logging in...');
 
 
 async function generateWelcomeImage(user) {
@@ -112,13 +127,15 @@ async function generateWelcomeImage(user) {
 }
 
 client.once('ready', () => {
-  console.log('========================');
-  console.log(`✅ Logged in as: ${client.user.tag}`);
-  console.log(`📊 Servers: ${client.guilds.cache.size}`);
-  console.log('========================');
+  console.log('========================================');
+  console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
+  console.log(`[discord] 📊 servers: ${client.guilds.cache.size}`);
+  console.log('[discord] bot is ONLINE and ready');
+  console.log('========================================');
 });
 
 client.on('guildMemberAdd', async (member) => {
+  console.log(`[join] ${member.user.tag} joined ${member.guild.name}`);
   try {
     const finalImage = await generateWelcomeImage(member.user);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
@@ -126,9 +143,12 @@ client.on('guildMemberAdd', async (member) => {
 
     if (channel) {
       await channel.send({ files: [attachment] });
+      console.log(`[join] welcome image sent for ${member.user.tag}`);
+    } else {
+      console.warn(`[join] channel ${process.env.CHANNEL_ID} not found, skipping welcome`);
     }
   } catch (err) {
-    console.error('Error generating welcome image:', err);
+    console.error('[join] error generating welcome image:', err);
   }
 });
 
@@ -137,15 +157,18 @@ client.on('messageCreate', async (message) => {
   if (!message.content.startsWith('!wel ')) return;
 
   const userId = message.content.slice(5).trim().replace(/[<@!>]/g, '');
+  console.log(`[!wel] requested by ${message.author.tag}, target userId: ${userId}`);
   if (!userId) {
     return message.reply('Usage: `!wel <user_id>`');
   }
 
   try {
     const targetUser = await client.users.fetch(userId);
+    console.log(`[!wel] generating image for ${targetUser.tag}`);
     const finalImage = await generateWelcomeImage(targetUser);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
     await message.channel.send({ content: `<@${targetUser.id}>`, files: [attachment] });
+    console.log(`[!wel] image sent for ${targetUser.tag}`);
   } catch (err) {
     console.error('❌ Error in !wel command:', err);
     await message.reply(' Failed, Make sure the user ID is valid.');
