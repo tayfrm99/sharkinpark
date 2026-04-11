@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
@@ -31,12 +31,35 @@ console.log('[discord] creating client...');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.GuildMembers
   ]
 });
 console.log('[discord] client created, logging in...');
+
+const welCommand = new SlashCommandBuilder()
+  .setName('wel')
+  .setDescription('Generate a welcome image for a user')
+  .addUserOption((option) =>
+    option
+      .setName('user')
+      .setDescription('User to generate a welcome image for')
+      .setRequired(true)
+  );
+
+async function registerWelCommand() {
+  const commandData = welCommand.toJSON();
+  const commands = await client.application.commands.fetch();
+  const existing = commands.find((command) => command.name === commandData.name);
+
+  if (existing) {
+    await existing.edit(commandData);
+    console.log('[discord] updated /wel command');
+    return;
+  }
+
+  await client.application.commands.create(commandData);
+  console.log('[discord] registered /wel command');
+}
 
 
 async function generateWelcomeImage(user) {
@@ -126,12 +149,18 @@ async function generateWelcomeImage(user) {
   return finalImage;
 }
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log('========================================');
   console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
   console.log(`[discord] 📊 servers: ${client.guilds.cache.size}`);
   console.log('[discord] bot is ONLINE and ready');
   console.log('========================================');
+
+  try {
+    await registerWelCommand();
+  } catch (err) {
+    console.error('[discord] failed to register /wel command:', err);
+  }
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -152,26 +181,27 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!wel ')) return;
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'wel') return;
 
-  const userId = message.content.slice(5).trim().replace(/[<@!>]/g, '');
-  console.log(`[!wel] requested by ${message.author.tag}, target userId: ${userId}`);
-  if (!userId) {
-    return message.reply('Usage: `!wel <user_id>`');
-  }
+  const targetUser = interaction.options.getUser('user', true);
+  console.log(`[/wel] requested by ${interaction.user.tag}, target userId: ${targetUser.id}`);
 
   try {
-    const targetUser = await client.users.fetch(userId);
-    console.log(`[!wel] generating image for ${targetUser.tag}`);
+    await interaction.deferReply();
+    console.log(`[/wel] generating image for ${targetUser.tag}`);
     const finalImage = await generateWelcomeImage(targetUser);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-    await message.channel.send({ content: `<@${targetUser.id}>`, files: [attachment] });
-    console.log(`[!wel] image sent for ${targetUser.tag}`);
+    await interaction.editReply({ content: `<@${targetUser.id}>`, files: [attachment] });
+    console.log(`[/wel] image sent for ${targetUser.tag}`);
   } catch (err) {
-    console.error('❌ Error in !wel command:', err);
-    await message.reply(' Failed, Make sure the user ID is valid.');
+    console.error('❌ Error in /wel command:', err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply('Failed, please try again.');
+    } else {
+      await interaction.reply({ content: 'Failed, please try again.', ephemeral: true });
+    }
   }
 });
 
