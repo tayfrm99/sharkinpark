@@ -32,6 +32,16 @@ run_as_root() {
   fi
 }
 
+run_as_app_user() {
+  if [[ "$(id -un)" == "${APP_USER}" ]]; then
+    "$@"
+  elif command -v runuser >/dev/null 2>&1; then
+    runuser -u "${APP_USER}" -- "$@"
+  else
+    ${SUDO} -u "${APP_USER}" "$@"
+  fi
+}
+
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "This installer currently supports Ubuntu/Debian Azure VMs only."
   exit 1
@@ -41,7 +51,7 @@ echo "[1/5] Installing OS packages..."
 run_as_root apt-get update
 run_as_root apt-get install -y ca-certificates curl gnupg build-essential
 
-NODE_MAJOR=0
+NODE_MAJOR=""
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR="$(node -p "Number.parseInt(process.versions.node.split('.')[0], 10)" 2>/dev/null || echo 0)"
 fi
@@ -59,8 +69,7 @@ else
 fi
 
 echo "[3/5] Installing project dependencies..."
-cd "${REPO_DIR}"
-npm ci --omit=dev
+run_as_app_user bash -lc "cd '${REPO_DIR}' && npm ci --omit=dev"
 
 if [[ ! -f "${REPO_DIR}/.env" ]]; then
   if [[ -f "${REPO_DIR}/.env.example" ]]; then
@@ -74,6 +83,7 @@ EOF
   fi
   echo "Created ${REPO_DIR}/.env. Update TOKEN and CHANNEL_ID before starting."
 fi
+run_as_root chown "${APP_USER}:${APP_GROUP}" "${REPO_DIR}/.env"
 
 echo "[4/5] Configuring systemd service..."
 SERVICE_CONTENT="[Unit]
