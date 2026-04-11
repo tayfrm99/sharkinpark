@@ -17,14 +17,19 @@ console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSIN
 console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
 
 // ── Health server ─────────────────────────────────────────────────────────────
-// uses PORT env var so Render.com can detect it
+// starts after Discord is ready so bot login has startup priority
 const PORT = process.env.PORT || 10000;
-http.createServer((_, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('i am alive burrp weasel.pages.dev');
-}).listen(PORT, () => {
-  console.log(`[http] healthcheck server listening on port ${PORT}`);
-});
+let healthServerStarted = false;
+function startHealthServer() {
+  if (healthServerStarted) return;
+  healthServerStarted = true;
+  http.createServer((_, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('i am alive burrp weasel.pages.dev');
+  }).listen(PORT, () => {
+    console.log(`[http] healthcheck server listening on port ${PORT}`);
+  });
+}
 
 // ── Discord client ─────────────────────────────────────────────────────────────
 console.log('[discord] creating client...');
@@ -132,6 +137,7 @@ client.once('ready', () => {
   console.log(`[discord] 📊 servers: ${client.guilds.cache.size}`);
   console.log('[discord] bot is ONLINE and ready');
   console.log('========================================');
+  startHealthServer();
 });
 
 client.on('guildMemberAdd', async (member) => {
