@@ -2,7 +2,13 @@
 
 Discord welcome-image bot with:
 - automatic welcome image on member join
+- automatic goodbye image on member leave
 - `/wel` slash command to generate welcome images manually
+- `/bye` slash command to generate goodbye images manually
+
+Template files in repository root:
+- `template.png` for welcome images
+- `bye-template.png` for goodbye images (if missing, bot falls back to `template.png`)
 
 ## Run locally
 
