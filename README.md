@@ -26,8 +26,8 @@ Discord welcome-image bot with:
 From repository root:
 
 ```bash
-chmod +x /home/runner/work/sharkinpark/sharkinpark/scripts/install-azure-vm.sh
-/home/runner/work/sharkinpark/sharkinpark/scripts/install-azure-vm.sh
+chmod +x ./scripts/install-azure-vm.sh
+./scripts/install-azure-vm.sh
 ```
 
 What it does:
