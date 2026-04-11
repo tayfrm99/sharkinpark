@@ -49,37 +49,75 @@ const welCommand = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-async function registerWelCommand() {
-  await client.application.commands.set([welCommand.toJSON()]);
+const byeCommand = new SlashCommandBuilder()
+  .setName('bye')
+  .setDescription('Generate a goodbye image for a user')
+  .addUserOption((option) =>
+    option
+      .setName('user')
+      .setDescription('User to generate a goodbye image for')
+      .setRequired(true)
+  );
+
+async function registerCommands() {
+  await client.application.commands.set([welCommand.toJSON(), byeCommand.toJSON()]);
   console.log('[discord] synced global slash commands');
 }
 
 const templatePath = path.join(__dirname, 'template.png');
-let templateBufferPromise;
-let templateReadError;
-let templateReadBlockedUntil = 0;
+const byeTemplatePath = path.join(__dirname, 'bye-template.png');
+const templateCache = {
+  bufferPromise: undefined,
+  readError: undefined,
+  readBlockedUntil: 0
+};
+const byeTemplateCache = {
+  bufferPromise: undefined,
+  readError: undefined,
+  readBlockedUntil: 0
+};
+let byeTemplateFallbackWarned = false;
 
-function getTemplateBuffer() {
-  if (templateReadBlockedUntil > Date.now()) {
-    return Promise.reject(templateReadError);
+function getTemplateBufferForPath(cache, filePath) {
+  if (cache.readBlockedUntil > Date.now()) {
+    return Promise.reject(cache.readError);
   }
 
-  if (!templateBufferPromise) {
-    templateBufferPromise = fs.readFile(templatePath)
+  if (!cache.bufferPromise) {
+    cache.bufferPromise = fs.readFile(filePath)
       .then((buffer) => {
-        templateReadError = undefined;
-        templateReadBlockedUntil = 0;
+        cache.readError = undefined;
+        cache.readBlockedUntil = 0;
         return buffer;
       })
       .catch((err) => {
-        templateBufferPromise = undefined;
-        templateReadError = err;
-        templateReadBlockedUntil = Date.now() + 30000;
+        cache.bufferPromise = undefined;
+        cache.readError = err;
+        cache.readBlockedUntil = Date.now() + 30000;
         throw err;
       });
   }
 
-  return templateBufferPromise;
+  return cache.bufferPromise;
+}
+
+function getTemplateBuffer() {
+  return getTemplateBufferForPath(templateCache, templatePath);
+}
+
+async function getByeTemplateBuffer() {
+  try {
+    return await getTemplateBufferForPath(byeTemplateCache, byeTemplatePath);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      if (!byeTemplateFallbackWarned) {
+        console.warn(`[template] ${byeTemplatePath} not found, using welcome template for bye images`);
+        byeTemplateFallbackWarned = true;
+      }
+      return getTemplateBuffer();
+    }
+    throw err;
+  }
 }
 
 function escapeSvgText(text) {
@@ -164,7 +202,7 @@ async function buildTextImage(username, width, height, offsetX, offsetY) {
     .toBuffer();
 }
 
-async function generateWelcomeImage(user) {
+async function generateMemberImage(user, templateBufferFactory) {
   const WIDTH = 309;
   const HEIGHT = 136;
 
@@ -186,7 +224,7 @@ async function generateWelcomeImage(user) {
   const [avatar, textImage, templateBuffer] = await Promise.all([
     avatarPromise,
     textImagePromise,
-    getTemplateBuffer()
+    templateBufferFactory()
   ]);
 
   const finalBox = await sharp(avatar)
@@ -208,6 +246,14 @@ async function generateWelcomeImage(user) {
   return finalImage;
 }
 
+function generateWelcomeImage(user) {
+  return generateMemberImage(user, getTemplateBuffer);
+}
+
+function generateByeImage(user) {
+  return generateMemberImage(user, getByeTemplateBuffer);
+}
+
 client.once('ready', async () => {
   console.log('========================================');
   console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
@@ -216,9 +262,9 @@ client.once('ready', async () => {
   console.log('========================================');
 
   try {
-    await registerWelCommand();
+    await registerCommands();
   } catch (err) {
-    console.error('[discord] failed to register /wel command:', err);
+    console.error('[discord] failed to register slash commands:', err);
   }
 });
 
@@ -240,22 +286,42 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
+client.on('guildMemberRemove', async (member) => {
+  console.log(`[leave] ${member.user.tag} left ${member.guild.name}`);
+  try {
+    const finalImage = await generateByeImage(member.user);
+    const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
+    const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
+
+    if (channel) {
+      await channel.send({ files: [attachment] });
+      console.log(`[leave] bye image sent for ${member.user.tag}`);
+    } else {
+      console.warn(`[leave] channel ${process.env.CHANNEL_ID} not found, skipping bye`);
+    }
+  } catch (err) {
+    console.error('[leave] error generating bye image:', err);
+  }
+});
+
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'wel') return;
+  if (interaction.commandName !== 'wel' && interaction.commandName !== 'bye') return;
 
+  const isBye = interaction.commandName === 'bye';
   const targetUser = interaction.options.getUser('user', true);
-  console.log(`[/wel] requested by ${interaction.user.tag}, target userId: ${targetUser.id}`);
+  const commandLabel = `/${interaction.commandName}`;
+  console.log(`[${commandLabel}] requested by ${interaction.user.tag}, target userId: ${targetUser.id}`);
 
   try {
     await interaction.deferReply();
-    console.log(`[/wel] generating image for ${targetUser.tag}`);
-    const finalImage = await generateWelcomeImage(targetUser);
-    const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
+    console.log(`[${commandLabel}] generating image for ${targetUser.tag}`);
+    const finalImage = isBye ? await generateByeImage(targetUser) : await generateWelcomeImage(targetUser);
+    const attachment = new AttachmentBuilder(finalImage, { name: isBye ? 'bye.png' : 'welcome.png' });
     await interaction.editReply({ files: [attachment] });
-    console.log(`[/wel] image sent for ${targetUser.tag}`);
+    console.log(`[${commandLabel}] image sent for ${targetUser.tag}`);
   } catch (err) {
-    console.error('❌ Error in /wel command:', err);
+    console.error(`❌ Error in ${commandLabel} command:`, err);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply('Failed, please try again.');
     } else {
