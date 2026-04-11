@@ -54,19 +54,35 @@ async function registerWelCommand() {
 
 const templatePath = path.join(__dirname, 'template.png');
 let templateBufferPromise;
+let templateReadError;
+let templateReadBlockedUntil = 0;
 
 function getTemplateBuffer() {
+  if (templateReadBlockedUntil > Date.now()) {
+    return Promise.reject(templateReadError);
+  }
+
   if (!templateBufferPromise) {
-    templateBufferPromise = fs.readFile(templatePath).catch((err) => {
-      templateBufferPromise = undefined;
-      throw err;
-    });
+    templateBufferPromise = fs.readFile(templatePath)
+      .then((buffer) => {
+        templateReadError = undefined;
+        templateReadBlockedUntil = 0;
+        return buffer;
+      })
+      .catch((err) => {
+        templateBufferPromise = undefined;
+        templateReadError = err;
+        templateReadBlockedUntil = Date.now() + 30000;
+        throw err;
+      });
   }
 
   return templateBufferPromise;
 }
 
 function escapeSvgText(text) {
+  if (!text) return '';
+
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

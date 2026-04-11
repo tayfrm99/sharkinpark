@@ -69,8 +69,8 @@ else
 fi
 
 echo "[3/5] Installing project dependencies..."
-run_as_app_user bash -lc "cd '${REPO_DIR}' && npm ci --omit=dev"
-run_as_app_user bash -lc "cd '${REPO_DIR}' && npm audit --omit=dev || true"
+run_as_app_user bash -c "cd '${REPO_DIR}' && npm ci --omit=dev"
+run_as_app_user bash -c "cd '${REPO_DIR}' && npm audit --omit=dev || true"
 
 if [[ ! -f "${REPO_DIR}/.env" ]]; then
   if [[ -f "${REPO_DIR}/.env.example" ]]; then
@@ -85,6 +85,7 @@ EOF
   echo "Created ${REPO_DIR}/.env. Update TOKEN and CHANNEL_ID before starting."
 fi
 run_as_root chown "${APP_USER}:${APP_GROUP}" "${REPO_DIR}/.env"
+run_as_root chmod 600 "${REPO_DIR}/.env"
 
 TOKEN_VALUE="$(grep -E '^TOKEN=' "${REPO_DIR}/.env" | tail -n 1 | cut -d '=' -f2- || true)"
 CHANNEL_VALUE="$(grep -E '^CHANNEL_ID=' "${REPO_DIR}/.env" | tail -n 1 | cut -d '=' -f2- || true)"
