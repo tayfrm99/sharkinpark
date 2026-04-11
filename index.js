@@ -102,7 +102,7 @@ async function buildTextImage(username, width, height, offsetX, offsetY) {
     <svg width="2000" height="400">
       <style>
         text {
-          font-family: Impact, Arial Black, sans-serif !important;
+          font-family: Impact, Arial Black, sans-serif;
           font-size: ${fontSize}px;
           font-weight: 900;
           text-anchor: middle;
