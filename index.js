@@ -128,17 +128,17 @@ client.on('guildMemberAdd', async (member) => {
       await channel.send({ files: [attachment] });
     }
   } catch (err) {
-    console.error('❌ Error generating welcome image:', err);
+    console.error('Error generating welcome image:', err);
   }
 });
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  if (!message.content.startsWith('!w ')) return;
+  if (!message.content.startsWith('!wel ')) return;
 
   const userId = message.content.slice(3).trim().replace(/[<@!>]/g, '');
   if (!userId) {
-    return message.reply('Usage: `!w <user_id>`');
+    return message.reply('Usage: `!wel <user_id>`');
   }
 
   try {
@@ -147,8 +147,8 @@ client.on('messageCreate', async (message) => {
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
     await message.channel.send({ content: `<@${targetUser.id}>`, files: [attachment] });
   } catch (err) {
-    console.error('❌ Error in !w command:', err);
-    await message.reply('❌ Failed to generate welcome image. Make sure the user ID is valid.');
+    console.error('❌ Error in !wel command:', err);
+    await message.reply(' Failed, Make sure the user ID is valid.');
   }
 });
 
