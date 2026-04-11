@@ -28,7 +28,7 @@ echo "[1/5] Installing OS packages..."
 run_as_root apt-get update
 run_as_root apt-get install -y ca-certificates curl gnupg build-essential
 
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(`.`)[0]')" -lt 20 ]]; then
+if ! command -v node >/dev/null 2>&1 || [[ "$(node -p "process.versions.node.split('.')[0]")" -lt 20 ]]; then
   echo "[2/5] Installing Node.js 20..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | run_as_root bash -
   run_as_root apt-get install -y nodejs

@@ -53,7 +53,18 @@ async function registerWelCommand() {
 }
 
 const templatePath = path.join(__dirname, 'template.png');
-const templateBufferPromise = fs.readFile(templatePath);
+let templateBufferPromise;
+
+function getTemplateBuffer() {
+  if (!templateBufferPromise) {
+    templateBufferPromise = fs.readFile(templatePath).catch((err) => {
+      templateBufferPromise = undefined;
+      throw err;
+    });
+  }
+
+  return templateBufferPromise;
+}
 
 function escapeSvgText(text) {
   return text
@@ -112,7 +123,7 @@ async function generateWelcomeImage(user) {
   const OFFSET_X = 40;
   const OFFSET_Y = 160;
 
-  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 128 });
+  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 256 });
   const avatarRes = await fetch(avatarURL);
   if (!avatarRes.ok) {
     throw new Error(`Failed to fetch avatar: ${avatarRes.status} ${avatarRes.statusText}`);
@@ -127,7 +138,7 @@ async function generateWelcomeImage(user) {
   const [avatar, textImage, templateBuffer] = await Promise.all([
     avatarPromise,
     textImagePromise,
-    templateBufferPromise
+    getTemplateBuffer()
   ]);
 
   const finalBox = await sharp(avatar)
