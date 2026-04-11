@@ -6,6 +6,11 @@ Discord welcome-image bot with:
 
 ## Run locally
 
+### Linux font requirement
+
+On Linux, this bot now requires the **Arial Black** system font.  
+If Arial Black is not installed, the process exits with an error instead of falling back to another font.
+
 1. Create `.env`:
    ```env
    TOKEN=your_discord_bot_token
