@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
@@ -17,21 +17,12 @@ http.createServer((_, res) => {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ]
 });
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName('welcome')
-    .setDescription('Manually send the welcome image for a user')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('The user to welcome')
-        .setRequired(true)
-    )
-    .toJSON()
-];
 
 async function generateWelcomeImage(user) {
   const WIDTH = 309;
@@ -120,23 +111,11 @@ async function generateWelcomeImage(user) {
   return finalImage;
 }
 
-client.once('ready', async () => {
+client.once('ready', () => {
   console.log('========================');
   console.log(`✅ Logged in as: ${client.user.tag}`);
   console.log(`📊 Servers: ${client.guilds.cache.size}`);
   console.log('========================');
-
-  // register slash commands globally
-  try {
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
-    console.log('✅ Slash commands registered');
-  } catch (err) {
-    console.error('❌ Failed to register slash commands:', err);
-  }
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -153,20 +132,23 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith('!w ')) return;
 
-  if (interaction.commandName === 'welcome') {
-    await interaction.deferReply();
-    try {
-      const targetUser = interaction.options.getUser('user');
-      const finalImage = await generateWelcomeImage(targetUser);
-      const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-      await interaction.editReply({ files: [attachment] });
-    } catch (err) {
-      console.error('❌ Error in /welcome command:', err);
-      await interaction.editReply('❌ Failed to generate welcome image.');
-    }
+  const userId = message.content.slice(3).trim().replace(/[<@!>]/g, '');
+  if (!userId) {
+    return message.reply('Usage: `!w <user_id>`');
+  }
+
+  try {
+    const targetUser = await client.users.fetch(userId);
+    const finalImage = await generateWelcomeImage(targetUser);
+    const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
+    await message.channel.send({ content: `<@${targetUser.id}>`, files: [attachment] });
+  } catch (err) {
+    console.error('❌ Error in !w command:', err);
+    await message.reply('❌ Failed to generate welcome image. Make sure the user ID is valid.');
   }
 });
 
