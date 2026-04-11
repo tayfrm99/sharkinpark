@@ -123,7 +123,7 @@ async function generateWelcomeImage(user) {
   const OFFSET_X = 40;
   const OFFSET_Y = 160;
 
-  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 256 });
+  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 512 });
   const avatarRes = await fetch(avatarURL);
   if (!avatarRes.ok) {
     throw new Error(`Failed to fetch avatar: ${avatarRes.status} ${avatarRes.statusText}`);

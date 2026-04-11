@@ -36,6 +36,8 @@ What it does:
 - creates `.env` from `.env.example` if missing
 - installs and starts a `systemd` service (`sharkinpark-bot`)
 
+If `.env` still has placeholder values, the installer will skip service start until you set real values.
+
 After install, edit `.env` with real Discord values if still placeholders, then restart:
 
 ```bash

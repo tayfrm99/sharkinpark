@@ -70,6 +70,7 @@ fi
 
 echo "[3/5] Installing project dependencies..."
 run_as_app_user bash -lc "cd '${REPO_DIR}' && npm ci --omit=dev"
+run_as_app_user bash -lc "cd '${REPO_DIR}' && npm audit --omit=dev || true"
 
 if [[ ! -f "${REPO_DIR}/.env" ]]; then
   if [[ -f "${REPO_DIR}/.env.example" ]]; then
@@ -84,6 +85,18 @@ EOF
   echo "Created ${REPO_DIR}/.env. Update TOKEN and CHANNEL_ID before starting."
 fi
 run_as_root chown "${APP_USER}:${APP_GROUP}" "${REPO_DIR}/.env"
+
+TOKEN_VALUE="$(grep -E '^TOKEN=' "${REPO_DIR}/.env" | tail -n 1 | cut -d '=' -f2- || true)"
+CHANNEL_VALUE="$(grep -E '^CHANNEL_ID=' "${REPO_DIR}/.env" | tail -n 1 | cut -d '=' -f2- || true)"
+HAS_REAL_ENV=true
+
+if [[ -z "${TOKEN_VALUE}" || "${TOKEN_VALUE}" == "replace-with-discord-bot-token" ]]; then
+  HAS_REAL_ENV=false
+fi
+
+if [[ -z "${CHANNEL_VALUE}" || "${CHANNEL_VALUE}" == "replace-with-channel-id" ]]; then
+  HAS_REAL_ENV=false
+fi
 
 echo "[4/5] Configuring systemd service..."
 SERVICE_CONTENT="[Unit]
@@ -107,7 +120,14 @@ printf "%s" "${SERVICE_CONTENT}" | run_as_root tee "${SERVICE_FILE}" >/dev/null
 
 run_as_root systemctl daemon-reload
 run_as_root systemctl enable "${SERVICE_NAME}"
-run_as_root systemctl restart "${SERVICE_NAME}"
+
+if [[ "${HAS_REAL_ENV}" == "true" ]]; then
+  run_as_root systemctl restart "${SERVICE_NAME}"
+else
+  echo "Skipped service start because .env still has placeholder TOKEN/CHANNEL_ID values."
+  echo "Update ${REPO_DIR}/.env, then run:"
+  echo "  sudo systemctl restart ${SERVICE_NAME}"
+fi
 
 echo "[5/5] Done."
 echo "Service status:"
