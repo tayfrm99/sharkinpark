@@ -4,6 +4,19 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_NAME="sharkinpark-bot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+APP_USER="${APP_USER:-${SUDO_USER:-$(id -un)}}"
+
+if [[ "${APP_USER}" == "root" ]]; then
+  echo "Refusing to run service as root. Set APP_USER to a non-root Linux user."
+  exit 1
+fi
+
+if ! id -u "${APP_USER}" >/dev/null 2>&1; then
+  echo "APP_USER '${APP_USER}' does not exist."
+  exit 1
+fi
+
+APP_GROUP="$(id -gn "${APP_USER}")"
 
 if command -v sudo >/dev/null 2>&1; then
   SUDO="sudo"
@@ -28,7 +41,16 @@ echo "[1/5] Installing OS packages..."
 run_as_root apt-get update
 run_as_root apt-get install -y ca-certificates curl gnupg build-essential
 
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -p "process.versions.node.split('.')[0]")" -lt 20 ]]; then
+NODE_MAJOR=0
+if command -v node >/dev/null 2>&1; then
+  NODE_MAJOR="$(node -p "Number.parseInt(process.versions.node.split('.')[0], 10)" 2>/dev/null || echo 0)"
+fi
+
+if ! [[ "${NODE_MAJOR}" =~ ^[0-9]+$ ]]; then
+  NODE_MAJOR=0
+fi
+
+if [[ "${NODE_MAJOR}" -lt 20 ]]; then
   echo "[2/5] Installing Node.js 20..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | run_as_root bash -
   run_as_root apt-get install -y nodejs
@@ -65,8 +87,8 @@ EnvironmentFile=${REPO_DIR}/.env
 ExecStart=/usr/bin/env node index.js
 Restart=always
 RestartSec=5
-User=$(id -un)
-Group=$(id -gn)
+Group=${APP_GROUP}
+User=${APP_USER}
 
 [Install]
 WantedBy=multi-user.target
