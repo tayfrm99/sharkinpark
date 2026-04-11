@@ -4,6 +4,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
+const fs = require('fs/promises');
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -47,53 +48,29 @@ const welCommand = new SlashCommandBuilder()
   );
 
 async function registerWelCommand() {
-  const commandData = welCommand.toJSON();
-  const commands = await client.application.commands.fetch();
-  const existing = commands.find((command) => command.name === commandData.name);
-
-  if (existing) {
-    await existing.edit(commandData);
-    console.log('[discord] updated /wel command');
-    return;
-  }
-
-  await client.application.commands.create(commandData);
-  console.log('[discord] registered /wel command');
+  await client.application.commands.set([welCommand.toJSON()]);
+  console.log('[discord] synced global slash commands');
 }
 
+const templatePath = path.join(__dirname, 'template.png');
+const templateBufferPromise = fs.readFile(templatePath);
 
-async function generateWelcomeImage(user) {
-  const WIDTH = 309;
-  const HEIGHT = 136;
+function escapeSvgText(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  const OFFSET_X = 40;
-  const OFFSET_Y = 160;
-
-  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 512 });
-  const avatarRes = await fetch(avatarURL);
-  const avatarBuffer = Buffer.from(await avatarRes.arrayBuffer());
-
-  const username = user.username;
-
-  // another stretch
-  const avatar = await sharp(avatarBuffer)
-    .resize(WIDTH, HEIGHT, { fit: 'fill' })
-    .toBuffer();
-
-  // set text size
+async function buildTextImage(username, width, height, offsetX, offsetY) {
   let fontSize = 220;
-  let fits = false;
-
-  while (!fits && fontSize > 20) {
-    // crude check based on length vs font
-    if (username.length * fontSize * 0.6 < 1800) {
-      fits = true;
-    } else {
-      fontSize -= 10;
-    }
+  while (fontSize > 20 && username.length * fontSize * 0.6 >= 1800) {
+    fontSize -= 10;
   }
 
-  // render le text
+  const safeUsername = escapeSvgText(username);
   const textSVG = Buffer.from(`
     <svg width="2000" height="400">
       <style>
@@ -105,37 +82,60 @@ async function generateWelcomeImage(user) {
           dominant-baseline: middle;
         }
       </style>
-
       <text
         x="1000"
         y="200"
         fill="none"
         stroke="black"
         stroke-width="20"
-        transform="translate(${OFFSET_X}, ${OFFSET_Y})"
-      >${username}</text>
-
+        transform="translate(${offsetX}, ${offsetY})"
+      >${safeUsername}</text>
       <text
         x="1000"
         y="200"
         fill="white"
-        transform="translate(${OFFSET_X}, ${OFFSET_Y})"
-      >${username}</text>
+        transform="translate(${offsetX}, ${offsetY})"
+      >${safeUsername}</text>
     </svg>
   `);
 
-  //strechtext
-  const textImage = await sharp(textSVG)
-    .resize(WIDTH, HEIGHT, { fit: 'fill' })
+  return sharp(textSVG)
+    .resize(width, height, { fit: 'fill' })
     .png()
     .toBuffer();
+}
+
+async function generateWelcomeImage(user) {
+  const WIDTH = 309;
+  const HEIGHT = 136;
+
+  const OFFSET_X = 40;
+  const OFFSET_Y = 160;
+
+  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 256 });
+  const avatarRes = await fetch(avatarURL);
+  if (!avatarRes.ok) {
+    throw new Error(`Failed to fetch avatar: ${avatarRes.status} ${avatarRes.statusText}`);
+  }
+  const avatarBuffer = Buffer.from(await avatarRes.arrayBuffer());
+
+  const username = user.username;
+  const avatarPromise = sharp(avatarBuffer)
+    .resize(WIDTH, HEIGHT, { fit: 'fill' })
+    .toBuffer();
+  const textImagePromise = buildTextImage(username, WIDTH, HEIGHT, OFFSET_X, OFFSET_Y);
+  const [avatar, textImage, templateBuffer] = await Promise.all([
+    avatarPromise,
+    textImagePromise,
+    templateBufferPromise
+  ]);
 
   const finalBox = await sharp(avatar)
     .composite([{ input: textImage }])
     .png()
     .toBuffer();
 
-  const finalImage = await sharp(path.join(__dirname, 'template.png'))
+  const finalImage = await sharp(templateBuffer)
     .composite([
       {
         input: finalBox,
