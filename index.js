@@ -220,7 +220,7 @@ client.on('interactionCreate', async (interaction) => {
     console.log(`[/wel] generating image for ${targetUser.tag}`);
     const finalImage = await generateWelcomeImage(targetUser);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-    await interaction.editReply({ content: `<@${targetUser.id}>`, files: [attachment] });
+    await interaction.editReply({ files: [attachment] });
     console.log(`[/wel] image sent for ${targetUser.tag}`);
   } catch (err) {
     console.error('❌ Error in /wel command:', err);
