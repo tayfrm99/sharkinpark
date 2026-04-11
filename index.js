@@ -47,6 +47,47 @@ const client = new Client({
 });
 console.log('[discord] client created, logging in...');
 
+function describeDiscordStartupError(err) {
+  const code = err?.code;
+  const status = err?.status;
+  const message = err?.message || String(err);
+
+  if (status === 429 || code === 429) {
+    return 'Discord API rate limited (429).';
+  }
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+    return 'Could not resolve/connect to Discord (DNS/network issue).';
+  }
+  if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ETIMEDOUT') {
+    return 'Connection to Discord failed or timed out.';
+  }
+  if (err?.name === 'TokenInvalid' || /invalid token/i.test(message)) {
+    return 'Discord token is invalid.';
+  }
+  if (/disallowed intents/i.test(message)) {
+    return 'Bot has disallowed intents; enable required privileged intents in the Discord Developer Portal.';
+  }
+  return 'Unexpected Discord startup/login error.';
+}
+
+client.on('error', (err) => {
+  console.error('[discord] client error:', err);
+});
+
+client.on('shardError', (err, shardId) => {
+  console.error(`[discord] shard ${shardId} websocket error:`, err);
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+  console.warn(`[discord] shard ${shardId} disconnected (code=${event?.code}, reason=${event?.reason || 'unknown'})`);
+});
+
+client.rest.on('rateLimited', (info) => {
+  const retry = typeof info?.timeToReset === 'number' ? `${info.timeToReset}ms` : 'unknown';
+  const route = info?.route || 'unknown';
+  console.warn(`[discord] rate limited on route "${route}", retry after ${retry}`);
+});
+
 
 async function generateWelcomeImage(user) {
   const WIDTH = 309;
@@ -190,6 +231,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 client.login(process.env.TOKEN).catch((err) => {
+  console.error(`[discord] ❌ ${describeDiscordStartupError(err)}`);
   console.error('Failed to login:', err);
   process.exit(1);
 });
