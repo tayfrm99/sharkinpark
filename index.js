@@ -102,7 +102,9 @@ function assertArialBlackAvailableOnLinux() {
       encoding: 'utf8'
     });
   } catch (err) {
-    throw new Error(`Failed to check system fonts with fc-list: ${err.message}`);
+    throw new Error(
+      `Failed to check system fonts with fc-list: ${err.message}. Ensure fontconfig is installed because it provides the fc-list command.`
+    );
   }
 
   const hasArialBlack = fontFamilies
@@ -115,7 +117,9 @@ function assertArialBlackAvailableOnLinux() {
     );
 
   if (!hasArialBlack) {
-    throw new Error('Required font "Arial Black" is not installed on this Linux host.');
+    throw new Error(
+      'Required font "Arial Black" is not installed on this Linux host. Install it with your distro package manager (Ubuntu/Debian example: sudo apt install ttf-mscorefonts-installer) and restart the bot.'
+    );
   }
 }
 
