@@ -1,9 +1,10 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
+const fs = require('fs/promises');
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -31,46 +32,72 @@ console.log('[discord] creating client...');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.GuildMembers
   ]
 });
 console.log('[discord] client created, logging in...');
 
+const welCommand = new SlashCommandBuilder()
+  .setName('wel')
+  .setDescription('Generate a welcome image for a user')
+  .addUserOption((option) =>
+    option
+      .setName('user')
+      .setDescription('User to generate a welcome image for')
+      .setRequired(true)
+  );
 
-async function generateWelcomeImage(user) {
-  const WIDTH = 309;
-  const HEIGHT = 136;
+async function registerWelCommand() {
+  await client.application.commands.set([welCommand.toJSON()]);
+  console.log('[discord] synced global slash commands');
+}
 
-  const OFFSET_X = 40;
-  const OFFSET_Y = 160;
+const templatePath = path.join(__dirname, 'template.png');
+let templateBufferPromise;
+let templateReadError;
+let templateReadBlockedUntil = 0;
 
-  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 512 });
-  const avatarRes = await fetch(avatarURL);
-  const avatarBuffer = Buffer.from(await avatarRes.arrayBuffer());
-
-  const username = user.username;
-
-  // another stretch
-  const avatar = await sharp(avatarBuffer)
-    .resize(WIDTH, HEIGHT, { fit: 'fill' })
-    .toBuffer();
-
-  // set text size
-  let fontSize = 220;
-  let fits = false;
-
-  while (!fits && fontSize > 20) {
-    // crude check based on length vs font
-    if (username.length * fontSize * 0.6 < 1800) {
-      fits = true;
-    } else {
-      fontSize -= 10;
-    }
+function getTemplateBuffer() {
+  if (templateReadBlockedUntil > Date.now()) {
+    return Promise.reject(templateReadError);
   }
 
-  // render le text
+  if (!templateBufferPromise) {
+    templateBufferPromise = fs.readFile(templatePath)
+      .then((buffer) => {
+        templateReadError = undefined;
+        templateReadBlockedUntil = 0;
+        return buffer;
+      })
+      .catch((err) => {
+        templateBufferPromise = undefined;
+        templateReadError = err;
+        templateReadBlockedUntil = Date.now() + 30000;
+        throw err;
+      });
+  }
+
+  return templateBufferPromise;
+}
+
+function escapeSvgText(text) {
+  if (!text) return '';
+
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function buildTextImage(username, width, height, offsetX, offsetY) {
+  let fontSize = 220;
+  while (fontSize > 20 && username.length * fontSize * 0.6 >= 1800) {
+    fontSize -= 10;
+  }
+
+  const safeUsername = escapeSvgText(username);
   const textSVG = Buffer.from(`
     <svg width="2000" height="400">
       <style>
@@ -82,37 +109,60 @@ async function generateWelcomeImage(user) {
           dominant-baseline: middle;
         }
       </style>
-
       <text
         x="1000"
         y="200"
         fill="none"
         stroke="black"
         stroke-width="20"
-        transform="translate(${OFFSET_X}, ${OFFSET_Y})"
-      >${username}</text>
-
+        transform="translate(${offsetX}, ${offsetY})"
+      >${safeUsername}</text>
       <text
         x="1000"
         y="200"
         fill="white"
-        transform="translate(${OFFSET_X}, ${OFFSET_Y})"
-      >${username}</text>
+        transform="translate(${offsetX}, ${offsetY})"
+      >${safeUsername}</text>
     </svg>
   `);
 
-  //strechtext
-  const textImage = await sharp(textSVG)
-    .resize(WIDTH, HEIGHT, { fit: 'fill' })
+  return sharp(textSVG)
+    .resize(width, height, { fit: 'fill' })
     .png()
     .toBuffer();
+}
+
+async function generateWelcomeImage(user) {
+  const WIDTH = 309;
+  const HEIGHT = 136;
+
+  const OFFSET_X = 40;
+  const OFFSET_Y = 160;
+
+  const avatarURL = user.displayAvatarURL({ extension: 'png', size: 512 });
+  const avatarRes = await fetch(avatarURL);
+  if (!avatarRes.ok) {
+    throw new Error(`Failed to fetch avatar: ${avatarRes.status} ${avatarRes.statusText}`);
+  }
+  const avatarBuffer = Buffer.from(await avatarRes.arrayBuffer());
+
+  const username = user.username;
+  const avatarPromise = sharp(avatarBuffer)
+    .resize(WIDTH, HEIGHT, { fit: 'fill' })
+    .toBuffer();
+  const textImagePromise = buildTextImage(username, WIDTH, HEIGHT, OFFSET_X, OFFSET_Y);
+  const [avatar, textImage, templateBuffer] = await Promise.all([
+    avatarPromise,
+    textImagePromise,
+    getTemplateBuffer()
+  ]);
 
   const finalBox = await sharp(avatar)
     .composite([{ input: textImage }])
     .png()
     .toBuffer();
 
-  const finalImage = await sharp(path.join(__dirname, 'template.png'))
+  const finalImage = await sharp(templateBuffer)
     .composite([
       {
         input: finalBox,
@@ -126,12 +176,18 @@ async function generateWelcomeImage(user) {
   return finalImage;
 }
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log('========================================');
   console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
   console.log(`[discord] 📊 servers: ${client.guilds.cache.size}`);
   console.log('[discord] bot is ONLINE and ready');
   console.log('========================================');
+
+  try {
+    await registerWelCommand();
+  } catch (err) {
+    console.error('[discord] failed to register /wel command:', err);
+  }
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -152,26 +208,27 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!wel ')) return;
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'wel') return;
 
-  const userId = message.content.slice(5).trim().replace(/[<@!>]/g, '');
-  console.log(`[!wel] requested by ${message.author.tag}, target userId: ${userId}`);
-  if (!userId) {
-    return message.reply('Usage: `!wel <user_id>`');
-  }
+  const targetUser = interaction.options.getUser('user', true);
+  console.log(`[/wel] requested by ${interaction.user.tag}, target userId: ${targetUser.id}`);
 
   try {
-    const targetUser = await client.users.fetch(userId);
-    console.log(`[!wel] generating image for ${targetUser.tag}`);
+    await interaction.deferReply();
+    console.log(`[/wel] generating image for ${targetUser.tag}`);
     const finalImage = await generateWelcomeImage(targetUser);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-    await message.channel.send({ content: `<@${targetUser.id}>`, files: [attachment] });
-    console.log(`[!wel] image sent for ${targetUser.tag}`);
+    await interaction.editReply({ content: `<@${targetUser.id}>`, files: [attachment] });
+    console.log(`[/wel] image sent for ${targetUser.tag}`);
   } catch (err) {
-    console.error('❌ Error in !wel command:', err);
-    await message.reply(' Failed, Make sure the user ID is valid.');
+    console.error('❌ Error in /wel command:', err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply('Failed, please try again.');
+    } else {
+      await interaction.reply({ content: 'Failed, please try again.', ephemeral: true });
+    }
   }
 });
 
