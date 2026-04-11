@@ -23,10 +23,14 @@ let healthServerStarted = false;
 function startHealthServer() {
   if (healthServerStarted) return;
   healthServerStarted = true;
-  http.createServer((_, res) => {
+  const server = http.createServer((_, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('i am alive burrp weasel.pages.dev');
-  }).listen(PORT, () => {
+  });
+  server.on('error', (err) => {
+    console.error('[http] failed to start healthcheck server:', err);
+  });
+  server.listen(PORT, () => {
     console.log(`[http] healthcheck server listening on port ${PORT}`);
   });
 }
