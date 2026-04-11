@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sharkinpark-bot
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
