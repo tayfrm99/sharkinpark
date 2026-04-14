@@ -75,6 +75,7 @@ async function registerCommands() {
 const templatePath = path.join(__dirname, 'template.png');
 const byeTemplatePath = path.join(__dirname, 'bye-template.png');
 const DEDUPE_WINDOW_MS = 30000;
+const DEDUPE_CACHE_SIZE = 500;
 const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
@@ -265,12 +266,14 @@ function generateByeImage(user) {
 }
 
 function createFallbackUserFromUsername(username) {
+  const avatarIndex = Array.from(username).reduce((acc, char) => acc + char.charCodeAt(0), 0) % 6;
+
   return {
     username,
     globalName: username,
     tag: username,
     displayAvatarURL() {
-      return 'https://cdn.discordapp.com/embed/avatars/0.png';
+      return `https://cdn.discordapp.com/embed/avatars/${avatarIndex}.png`;
     }
   };
 }
@@ -284,7 +287,7 @@ function shouldSendByeForKey(key) {
   const previous = recentByeKeys.get(key);
   recentByeKeys.set(key, now);
 
-  if (recentByeKeys.size > 500) {
+  if (recentByeKeys.size > DEDUPE_CACHE_SIZE) {
     for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
       if (now - timestamp > DEDUPE_WINDOW_MS) {
         recentByeKeys.delete(candidateKey);
@@ -330,11 +333,13 @@ async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
 
 function parseDynoLeaveUsername(content) {
   if (!content || typeof content !== 'string') return null;
+  const trimmedContent = content.trim();
   const suffix = ' has left the server. Their loss.';
-  const lowered = content.toLowerCase().trim();
-  if (!lowered.endsWith(suffix)) return null;
+  const loweredSuffix = suffix.toLowerCase();
+  const lowered = trimmedContent.toLowerCase();
+  if (!lowered.endsWith(loweredSuffix)) return null;
 
-  const username = content.trim().slice(0, content.trim().length - suffix.length).trim();
+  const username = trimmedContent.slice(0, trimmedContent.length - suffix.length).trim();
   return username || null;
 }
 
