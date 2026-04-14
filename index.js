@@ -267,6 +267,8 @@ function generateByeImage(user) {
 function createFallbackUserFromUsername(username) {
   return {
     username,
+    globalName: username,
+    tag: username,
     displayAvatarURL() {
       return 'https://cdn.discordapp.com/embed/avatars/0.png';
     }
@@ -282,9 +284,11 @@ function shouldSendByeForKey(key) {
   const previous = recentByeKeys.get(key);
   recentByeKeys.set(key, now);
 
-  for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
-    if (now - timestamp > DEDUPE_WINDOW_MS) {
-      recentByeKeys.delete(candidateKey);
+  if (recentByeKeys.size > 500) {
+    for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
+      if (now - timestamp > DEDUPE_WINDOW_MS) {
+        recentByeKeys.delete(candidateKey);
+      }
     }
   }
 
@@ -326,18 +330,19 @@ async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
 
 function parseDynoLeaveUsername(content) {
   if (!content || typeof content !== 'string') return null;
+  const suffix = ' has left the server. Their loss.';
+  const lowered = content.toLowerCase().trim();
+  if (!lowered.endsWith(suffix)) return null;
 
-  const match = content.match(/^(.+?) has left the server\.\s*Their loss\.\s*$/i);
-  if (!match) return null;
-
-  return match[1].trim();
+  const username = content.trim().slice(0, content.trim().length - suffix.length).trim();
+  return username || null;
 }
 
 function findMatchingUserForLeaveMessage(username) {
   const normalized = username.toLowerCase();
 
   for (const user of client.users.cache.values()) {
-    if (user.tag && user.tag.toLowerCase() === normalized) return user;
+    if (user.tag && user.tag.toLowerCase().split('#')[0] === normalized) return user;
     if (user.username && user.username.toLowerCase() === normalized) return user;
     if (user.globalName && user.globalName.toLowerCase() === normalized) return user;
   }
