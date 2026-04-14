@@ -7,6 +7,7 @@ const http = require('http');
 const fs = require('fs/promises');
 const { execFileSync } = require('child_process');
 const DEFAULT_DYNO_BOT_ID = '155149108183695360';
+const isDynoFallbackEnabled = /^(1|true|yes|on)$/i.test(process.env.ENABLE_DYNO_LEAVE_FALLBACK || '');
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -18,7 +19,10 @@ console.log('========================================');
 // ── Env var check ─────────────────────────────────────────────────────────────
 console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
 console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
-console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
+console.log('[env] DYNO_FALLBACK:', isDynoFallbackEnabled ? '✅ enabled' : '⏸️ disabled');
+if (isDynoFallbackEnabled) {
+  console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
+}
 assertArialBlackAvailableOnLinux();
 
 // ── Health server ─────────────────────────────────────────────────────────────
@@ -33,13 +37,15 @@ http.createServer((_, res) => {
 
 // ── Discord client ─────────────────────────────────────────────────────────────
 console.log('[discord] creating client...');
+const clientIntents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMembers
+];
+if (isDynoFallbackEnabled) {
+  clientIntents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+}
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ],
+  intents: clientIntents,
   partials: [
     Partials.GuildMember,
     Partials.User
@@ -418,6 +424,7 @@ client.on('guildMemberRemove', async (member) => {
 });
 
 client.on('messageCreate', async (message) => {
+  if (!isDynoFallbackEnabled) return;
   const dynoBotId = process.env.DYNO_BOT_ID || DEFAULT_DYNO_BOT_ID;
   if (!message.guild || !message.author || message.author.id !== dynoBotId) return;
 

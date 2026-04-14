@@ -3,7 +3,7 @@
 Discord welcome-image bot with:
 - automatic welcome image on member join
 - automatic goodbye image on member leave
-- fallback goodbye trigger from Dyno leave messages (`<username> has left the server. Their loss.`)
+- optional fallback goodbye trigger from Dyno leave messages (`<username> has left the server. Their loss.`)
 - `/wel` slash command to generate welcome images manually
 - `/bye` slash command to generate goodbye images manually
 
@@ -22,6 +22,7 @@ If Arial Black is not installed, the process exits with an error instead of fall
    ```env
    TOKEN=your_discord_bot_token
    CHANNEL_ID=your_channel_id
+   ENABLE_DYNO_LEAVE_FALLBACK=false
    DYNO_BOT_ID=155149108183695360
    PORT=10000
    ```
@@ -37,7 +38,7 @@ If Arial Black is not installed, the process exits with an error instead of fall
 ### Discord bot portal settings required
 
 - Enable **Server Members Intent**
-- Enable **Message Content Intent** (needed for Dyno leave-message fallback detection)
+- Enable **Message Content Intent** only if `ENABLE_DYNO_LEAVE_FALLBACK=true`
 
 ## One-command Azure VM install (Ubuntu/Debian)
 
