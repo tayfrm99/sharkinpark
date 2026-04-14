@@ -78,6 +78,7 @@ const DEDUPE_WINDOW_MS = 30000;
 const DEDUPE_CACHE_SIZE = 500;
 const DYNO_LEAVE_SUFFIX = ' has left the server. Their loss.';
 const DYNO_LEAVE_SUFFIX_LOWER = DYNO_LEAVE_SUFFIX.toLowerCase();
+const DISCORD_DEFAULT_AVATAR_COUNT = 6;
 const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
@@ -272,7 +273,7 @@ function createFallbackUserFromUsername(username) {
   for (const char of username) {
     charCodeSum += char.charCodeAt(0);
   }
-  const avatarIndex = charCodeSum % 6;
+  const avatarIndex = charCodeSum % DISCORD_DEFAULT_AVATAR_COUNT;
 
   return {
     username,
@@ -294,11 +295,15 @@ function shouldSendByeForKey(key) {
   recentByeKeys.set(key, now);
 
   for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
-    if (now - timestamp > DEDUPE_WINDOW_MS || recentByeKeys.size > DEDUPE_CACHE_SIZE) {
+    if (now - timestamp > DEDUPE_WINDOW_MS) {
       recentByeKeys.delete(candidateKey);
-      continue;
     }
-    break;
+  }
+
+  while (recentByeKeys.size > DEDUPE_CACHE_SIZE) {
+    const oldestKey = recentByeKeys.keys().next().value;
+    if (!oldestKey) break;
+    recentByeKeys.delete(oldestKey);
   }
 
   return !previous || now - previous > DEDUPE_WINDOW_MS;
@@ -343,7 +348,7 @@ function parseDynoLeaveUsername(content) {
   const lowered = trimmedContent.toLowerCase();
   if (!lowered.endsWith(DYNO_LEAVE_SUFFIX_LOWER)) return null;
 
-  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX.length).trim();
+  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX_LOWER.length).trim();
   return username || null;
 }
 
@@ -351,8 +356,11 @@ function findMatchingUserForLeaveMessage(username) {
   const normalized = username.toLowerCase();
 
   for (const user of client.users.cache.values()) {
-    if (user.username && user.username.toLowerCase() === normalized) return user;
-    if (user.globalName && user.globalName.toLowerCase() === normalized) return user;
+    const lowerUsername = user.username ? user.username.toLowerCase() : null;
+    if (lowerUsername === normalized) return user;
+
+    const lowerGlobalName = user.globalName ? user.globalName.toLowerCase() : null;
+    if (lowerGlobalName === normalized) return user;
   }
 
   return createFallbackUserFromUsername(username);
