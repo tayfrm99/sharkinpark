@@ -1,11 +1,17 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs/promises');
 const { execFileSync } = require('child_process');
+const DEFAULT_DYNO_BOT_ID = '155149108183695360';
+function isEnvToggleEnabled(value) {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+const isDynoFallbackEnabled = isEnvToggleEnabled(process.env.ENABLE_DYNO_LEAVE_FALLBACK);
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -17,6 +23,10 @@ console.log('========================================');
 // ── Env var check ─────────────────────────────────────────────────────────────
 console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
 console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
+console.log('[env] DYNO_FALLBACK:', isDynoFallbackEnabled ? '✅ enabled' : '⏸️ disabled');
+if (isDynoFallbackEnabled) {
+  console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
+}
 assertArialBlackAvailableOnLinux();
 
 // ── Health server ─────────────────────────────────────────────────────────────
@@ -31,10 +41,18 @@ http.createServer((_, res) => {
 
 // ── Discord client ─────────────────────────────────────────────────────────────
 console.log('[discord] creating client...');
+const clientIntents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMembers
+];
+if (isDynoFallbackEnabled) {
+  clientIntents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+}
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
+  intents: clientIntents,
+  partials: [
+    Partials.GuildMember,
+    Partials.User
   ]
 });
 console.log('[discord] client created, logging in...');
@@ -66,6 +84,12 @@ async function registerCommands() {
 
 const templatePath = path.join(__dirname, 'template.png');
 const byeTemplatePath = path.join(__dirname, 'bye-template.png');
+const DEDUPE_WINDOW_MS = 30000;
+const DEDUPE_CACHE_SIZE = 500;
+const DYNO_LEAVE_SUFFIX = ' has left the server. Their loss.';
+const DYNO_LEAVE_SUFFIX_LOWER = DYNO_LEAVE_SUFFIX.toLowerCase();
+const DISCORD_DEFAULT_AVATAR_OPTIONS = 6; // Default avatar indices are 0..5
+const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
   readError: undefined,
@@ -254,6 +278,104 @@ function generateByeImage(user) {
   return generateMemberImage(user, getByeTemplateBuffer);
 }
 
+function createFallbackUserFromUsername(username) {
+  let charCodeSum = 0;
+  for (const char of username) {
+    charCodeSum += char.charCodeAt(0);
+  }
+  const avatarIndex = charCodeSum % DISCORD_DEFAULT_AVATAR_OPTIONS;
+
+  return {
+    username,
+    globalName: username,
+    tag: username,
+    displayAvatarURL() {
+      return `https://cdn.discordapp.com/embed/avatars/${avatarIndex}.png`;
+    }
+  };
+}
+
+function buildByeDedupeKey(guildId, username) {
+  return `${guildId}:${username.toLowerCase().trim()}`;
+}
+
+function shouldSendByeForKey(key) {
+  const now = Date.now();
+  const previous = recentByeKeys.get(key);
+  recentByeKeys.set(key, now);
+
+  for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
+    if (now - timestamp > DEDUPE_WINDOW_MS) {
+      recentByeKeys.delete(candidateKey);
+    }
+  }
+
+  while (recentByeKeys.size > DEDUPE_CACHE_SIZE) {
+    const oldestKey = recentByeKeys.keys().next().value;
+    if (!oldestKey) break;
+    recentByeKeys.delete(oldestKey);
+  }
+
+  return !previous || now - previous > DEDUPE_WINDOW_MS;
+}
+
+async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
+  const channelId = process.env.CHANNEL_ID;
+  if (!channelId) {
+    console.warn(`[${sourceLabel}] CHANNEL_ID is not set, skipping bye`);
+    return;
+  }
+
+  const dedupeKey = buildByeDedupeKey(guild.id, user.username);
+  if (!shouldSendByeForKey(dedupeKey)) {
+    console.log(`[${sourceLabel}] duplicate bye detected for ${user.username}, skipping`);
+    return;
+  }
+
+  const finalImage = await generateByeImage(user);
+  const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
+
+  let channel = guild.channels.cache.get(channelId);
+  if (!channel) {
+    channel = await guild.channels.fetch(channelId).catch((err) => {
+      console.error(`[${sourceLabel}] failed to fetch channel ${channelId}:`, err);
+      return null;
+    });
+  }
+
+  if (!channel || typeof channel.send !== 'function') {
+    console.warn(`[${sourceLabel}] channel ${channelId} not found or not sendable, skipping bye`);
+    return;
+  }
+
+  await channel.send({ files: [attachment] });
+  console.log(`[${sourceLabel}] bye image sent for ${user.tag ?? user.username}`);
+}
+
+function parseDynoLeaveUsername(content) {
+  if (!content || typeof content !== 'string') return null;
+  const trimmedContent = content.trim();
+  const lowered = trimmedContent.toLowerCase();
+  if (!lowered.endsWith(DYNO_LEAVE_SUFFIX_LOWER)) return null;
+
+  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX_LOWER.length).trim();
+  return username || null;
+}
+
+function findMatchingUserForLeaveMessage(username) {
+  const normalized = username.toLowerCase();
+
+  for (const user of client.users.cache.values()) {
+    const lowerUsername = user.username ? user.username.toLowerCase() : null;
+    if (lowerUsername === normalized) return user;
+
+    const lowerGlobalName = user.globalName ? user.globalName.toLowerCase() : null;
+    if (lowerGlobalName === normalized) return user;
+  }
+
+  return createFallbackUserFromUsername(username);
+}
+
 client.once('ready', async () => {
   console.log('========================================');
   console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
@@ -287,20 +409,38 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 client.on('guildMemberRemove', async (member) => {
-  console.log(`[leave] ${member.user.tag} left ${member.guild.name}`);
-  try {
-    const finalImage = await generateByeImage(member.user);
-    const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
-    const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
-
-    if (channel) {
-      await channel.send({ files: [attachment] });
-      console.log(`[leave] bye image sent for ${member.user.tag}`);
-    } else {
-      console.warn(`[leave] channel ${process.env.CHANNEL_ID} not found, skipping bye`);
+  let user = member.user;
+  if (!user) {
+    try {
+      user = await client.users.fetch(member.id);
+    } catch (err) {
+      console.error(`[leave] failed to fetch leaving user ${member.id}:`, err);
+      return;
     }
+  }
+
+  console.log(`[leave] ${user.tag} left ${member.guild.name}`);
+  try {
+    await sendByeImageToConfiguredChannel(member.guild, user, 'leave');
   } catch (err) {
     console.error('[leave] error generating bye image:', err);
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  if (!isDynoFallbackEnabled) return;
+  const dynoBotId = process.env.DYNO_BOT_ID || DEFAULT_DYNO_BOT_ID;
+  if (!message.guild || !message.author || message.author.id !== dynoBotId) return;
+
+  const leavingUsername = parseDynoLeaveUsername(message.content);
+  if (!leavingUsername) return;
+
+  const user = findMatchingUserForLeaveMessage(leavingUsername);
+  console.log(`[dyno-leave] detected leave message for ${leavingUsername}`);
+  try {
+    await sendByeImageToConfiguredChannel(message.guild, user, 'dyno-leave');
+  } catch (err) {
+    console.error('[dyno-leave] error generating bye image:', err);
   }
 });
 
