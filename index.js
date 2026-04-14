@@ -78,7 +78,7 @@ const DEDUPE_WINDOW_MS = 30000;
 const DEDUPE_CACHE_SIZE = 500;
 const DYNO_LEAVE_SUFFIX = ' has left the server. Their loss.';
 const DYNO_LEAVE_SUFFIX_LOWER = DYNO_LEAVE_SUFFIX.toLowerCase();
-const DISCORD_DEFAULT_AVATAR_COUNT = 6;
+const DISCORD_DEFAULT_AVATAR_OPTIONS = 6; // Default avatar indices are 0..5
 const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
@@ -273,7 +273,7 @@ function createFallbackUserFromUsername(username) {
   for (const char of username) {
     charCodeSum += char.charCodeAt(0);
   }
-  const avatarIndex = charCodeSum % DISCORD_DEFAULT_AVATAR_COUNT;
+  const avatarIndex = charCodeSum % DISCORD_DEFAULT_AVATAR_OPTIONS;
 
   return {
     username,
@@ -348,7 +348,7 @@ function parseDynoLeaveUsername(content) {
   const lowered = trimmedContent.toLowerCase();
   if (!lowered.endsWith(DYNO_LEAVE_SUFFIX_LOWER)) return null;
 
-  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX_LOWER.length).trim();
+  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX.length).trim();
   return username || null;
 }
 
