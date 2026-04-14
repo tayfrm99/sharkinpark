@@ -7,7 +7,11 @@ const http = require('http');
 const fs = require('fs/promises');
 const { execFileSync } = require('child_process');
 const DEFAULT_DYNO_BOT_ID = '155149108183695360';
-const isDynoFallbackEnabled = /^(1|true|yes|on)$/i.test(process.env.ENABLE_DYNO_LEAVE_FALLBACK || '');
+function isEnvToggleEnabled(value) {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+const isDynoFallbackEnabled = isEnvToggleEnabled(process.env.ENABLE_DYNO_LEAVE_FALLBACK);
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -354,7 +358,7 @@ function parseDynoLeaveUsername(content) {
   const lowered = trimmedContent.toLowerCase();
   if (!lowered.endsWith(DYNO_LEAVE_SUFFIX_LOWER)) return null;
 
-  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX.length).trim();
+  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX_LOWER.length).trim();
   return username || null;
 }
 
