@@ -76,6 +76,8 @@ const templatePath = path.join(__dirname, 'template.png');
 const byeTemplatePath = path.join(__dirname, 'bye-template.png');
 const DEDUPE_WINDOW_MS = 30000;
 const DEDUPE_CACHE_SIZE = 500;
+const DYNO_LEAVE_SUFFIX = ' has left the server. Their loss.';
+const DYNO_LEAVE_SUFFIX_LOWER = DYNO_LEAVE_SUFFIX.toLowerCase();
 const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
@@ -266,7 +268,11 @@ function generateByeImage(user) {
 }
 
 function createFallbackUserFromUsername(username) {
-  const avatarIndex = Array.from(username).reduce((acc, char) => acc + char.charCodeAt(0), 0) % 6;
+  let charCodeSum = 0;
+  for (const char of username) {
+    charCodeSum += char.charCodeAt(0);
+  }
+  const avatarIndex = charCodeSum % 6;
 
   return {
     username,
@@ -287,12 +293,12 @@ function shouldSendByeForKey(key) {
   const previous = recentByeKeys.get(key);
   recentByeKeys.set(key, now);
 
-  if (recentByeKeys.size > DEDUPE_CACHE_SIZE) {
-    for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
-      if (now - timestamp > DEDUPE_WINDOW_MS) {
-        recentByeKeys.delete(candidateKey);
-      }
+  for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
+    if (now - timestamp > DEDUPE_WINDOW_MS || recentByeKeys.size > DEDUPE_CACHE_SIZE) {
+      recentByeKeys.delete(candidateKey);
+      continue;
     }
+    break;
   }
 
   return !previous || now - previous > DEDUPE_WINDOW_MS;
@@ -334,12 +340,10 @@ async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
 function parseDynoLeaveUsername(content) {
   if (!content || typeof content !== 'string') return null;
   const trimmedContent = content.trim();
-  const suffix = ' has left the server. Their loss.';
-  const loweredSuffix = suffix.toLowerCase();
   const lowered = trimmedContent.toLowerCase();
-  if (!lowered.endsWith(loweredSuffix)) return null;
+  if (!lowered.endsWith(DYNO_LEAVE_SUFFIX_LOWER)) return null;
 
-  const username = trimmedContent.slice(0, trimmedContent.length - suffix.length).trim();
+  const username = trimmedContent.slice(0, trimmedContent.length - DYNO_LEAVE_SUFFIX.length).trim();
   return username || null;
 }
 
@@ -347,7 +351,6 @@ function findMatchingUserForLeaveMessage(username) {
   const normalized = username.toLowerCase();
 
   for (const user of client.users.cache.values()) {
-    if (user.tag && user.tag.toLowerCase().split('#')[0] === normalized) return user;
     if (user.username && user.username.toLowerCase() === normalized) return user;
     if (user.globalName && user.globalName.toLowerCase() === normalized) return user;
   }
