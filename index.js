@@ -307,7 +307,10 @@ client.on('guildMemberRemove', async (member) => {
     const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
     let channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
     if (!channel) {
-      channel = await member.guild.channels.fetch(process.env.CHANNEL_ID).catch(() => null);
+      channel = await member.guild.channels.fetch(process.env.CHANNEL_ID).catch((err) => {
+        console.error(`[leave] failed to fetch channel ${process.env.CHANNEL_ID}:`, err);
+        return null;
+      });
     }
 
     if (channel) {
