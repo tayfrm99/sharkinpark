@@ -305,10 +305,16 @@ client.on('guildMemberRemove', async (member) => {
   try {
     const finalImage = await generateByeImage(user);
     const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
-    let channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
+    const channelId = process.env.CHANNEL_ID;
+    if (!channelId) {
+      console.warn('[leave] CHANNEL_ID is not set, skipping bye');
+      return;
+    }
+
+    let channel = member.guild.channels.cache.get(channelId);
     if (!channel) {
-      channel = await member.guild.channels.fetch(process.env.CHANNEL_ID).catch((err) => {
-        console.error(`[leave] failed to fetch channel ${process.env.CHANNEL_ID}:`, err);
+      channel = await member.guild.channels.fetch(channelId).catch((err) => {
+        console.error(`[leave] failed to fetch channel ${channelId}:`, err);
         return null;
       });
     }
@@ -317,7 +323,7 @@ client.on('guildMemberRemove', async (member) => {
       await channel.send({ files: [attachment] });
       console.log(`[leave] bye image sent for ${user.tag}`);
     } else {
-      console.warn(`[leave] channel ${process.env.CHANNEL_ID} not found, skipping bye`);
+      console.warn(`[leave] channel ${channelId} not found, skipping bye`);
     }
   } catch (err) {
     console.error('[leave] error generating bye image:', err);
