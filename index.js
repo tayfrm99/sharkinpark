@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
 const sharp = require('sharp');
 const path = require('path');
 const fetch = require('node-fetch');
@@ -35,6 +35,10 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers
+  ],
+  partials: [
+    Partials.GuildMember,
+    Partials.User
   ]
 });
 console.log('[discord] client created, logging in...');
@@ -287,15 +291,28 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 client.on('guildMemberRemove', async (member) => {
-  console.log(`[leave] ${member.user.tag} left ${member.guild.name}`);
+  let user = member.user;
+  if (!user) {
+    try {
+      user = await client.users.fetch(member.id);
+    } catch (err) {
+      console.error(`[leave] failed to fetch leaving user ${member.id}:`, err);
+      return;
+    }
+  }
+
+  console.log(`[leave] ${user.tag} left ${member.guild.name}`);
   try {
-    const finalImage = await generateByeImage(member.user);
+    const finalImage = await generateByeImage(user);
     const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
-    const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
+    let channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
+    if (!channel) {
+      channel = await member.guild.channels.fetch(process.env.CHANNEL_ID).catch(() => null);
+    }
 
     if (channel) {
       await channel.send({ files: [attachment] });
-      console.log(`[leave] bye image sent for ${member.user.tag}`);
+      console.log(`[leave] bye image sent for ${user.tag}`);
     } else {
       console.warn(`[leave] channel ${process.env.CHANNEL_ID} not found, skipping bye`);
     }
