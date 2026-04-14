@@ -6,6 +6,7 @@ const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs/promises');
 const { execFileSync } = require('child_process');
+const DEFAULT_DYNO_BOT_ID = '155149108183695360';
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -17,6 +18,7 @@ console.log('========================================');
 // ── Env var check ─────────────────────────────────────────────────────────────
 console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
 console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
+console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
 assertArialBlackAvailableOnLinux();
 
 // ── Health server ─────────────────────────────────────────────────────────────
@@ -34,7 +36,9 @@ console.log('[discord] creating client...');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ],
   partials: [
     Partials.GuildMember,
@@ -70,6 +74,8 @@ async function registerCommands() {
 
 const templatePath = path.join(__dirname, 'template.png');
 const byeTemplatePath = path.join(__dirname, 'bye-template.png');
+const DEDUPE_WINDOW_MS = 30000;
+const recentByeKeys = new Map();
 const templateCache = {
   bufferPromise: undefined,
   readError: undefined,
@@ -258,6 +264,87 @@ function generateByeImage(user) {
   return generateMemberImage(user, getByeTemplateBuffer);
 }
 
+function createFallbackUserFromUsername(username) {
+  return {
+    username,
+    displayAvatarURL() {
+      return 'https://cdn.discordapp.com/embed/avatars/0.png';
+    }
+  };
+}
+
+function buildByeDedupeKey(guildId, username) {
+  return `${guildId}:${username.toLowerCase().trim()}`;
+}
+
+function shouldSendByeForKey(key) {
+  const now = Date.now();
+  const previous = recentByeKeys.get(key);
+  recentByeKeys.set(key, now);
+
+  for (const [candidateKey, timestamp] of recentByeKeys.entries()) {
+    if (now - timestamp > DEDUPE_WINDOW_MS) {
+      recentByeKeys.delete(candidateKey);
+    }
+  }
+
+  return !previous || now - previous > DEDUPE_WINDOW_MS;
+}
+
+async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
+  const channelId = process.env.CHANNEL_ID;
+  if (!channelId) {
+    console.warn(`[${sourceLabel}] CHANNEL_ID is not set, skipping bye`);
+    return;
+  }
+
+  const dedupeKey = buildByeDedupeKey(guild.id, user.username);
+  if (!shouldSendByeForKey(dedupeKey)) {
+    console.log(`[${sourceLabel}] duplicate bye detected for ${user.username}, skipping`);
+    return;
+  }
+
+  const finalImage = await generateByeImage(user);
+  const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
+
+  let channel = guild.channels.cache.get(channelId);
+  if (!channel) {
+    channel = await guild.channels.fetch(channelId).catch((err) => {
+      console.error(`[${sourceLabel}] failed to fetch channel ${channelId}:`, err);
+      return null;
+    });
+  }
+
+  if (!channel || typeof channel.send !== 'function') {
+    console.warn(`[${sourceLabel}] channel ${channelId} not found or not sendable, skipping bye`);
+    return;
+  }
+
+  await channel.send({ files: [attachment] });
+  console.log(`[${sourceLabel}] bye image sent for ${user.tag ?? user.username}`);
+}
+
+function parseDynoLeaveUsername(content) {
+  if (!content || typeof content !== 'string') return null;
+
+  const match = content.match(/^(.+?) has left the server\.\s*Their loss\.\s*$/i);
+  if (!match) return null;
+
+  return match[1].trim();
+}
+
+function findMatchingUserForLeaveMessage(username) {
+  const normalized = username.toLowerCase();
+
+  for (const user of client.users.cache.values()) {
+    if (user.tag && user.tag.toLowerCase() === normalized) return user;
+    if (user.username && user.username.toLowerCase() === normalized) return user;
+    if (user.globalName && user.globalName.toLowerCase() === normalized) return user;
+  }
+
+  return createFallbackUserFromUsername(username);
+}
+
 client.once('ready', async () => {
   console.log('========================================');
   console.log(`[discord] ✅ logged in as: ${client.user.tag}`);
@@ -303,30 +390,25 @@ client.on('guildMemberRemove', async (member) => {
 
   console.log(`[leave] ${user.tag} left ${member.guild.name}`);
   try {
-    const finalImage = await generateByeImage(user);
-    const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
-    const channelId = process.env.CHANNEL_ID;
-    if (!channelId) {
-      console.warn('[leave] CHANNEL_ID is not set, skipping bye');
-      return;
-    }
-
-    let channel = member.guild.channels.cache.get(channelId);
-    if (!channel) {
-      channel = await member.guild.channels.fetch(channelId).catch((err) => {
-        console.error(`[leave] failed to fetch channel ${channelId}:`, err);
-        return null;
-      });
-    }
-
-    if (channel) {
-      await channel.send({ files: [attachment] });
-      console.log(`[leave] bye image sent for ${user.tag}`);
-    } else {
-      console.warn(`[leave] channel ${channelId} not found, skipping bye`);
-    }
+    await sendByeImageToConfiguredChannel(member.guild, user, 'leave');
   } catch (err) {
     console.error('[leave] error generating bye image:', err);
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  const dynoBotId = process.env.DYNO_BOT_ID || DEFAULT_DYNO_BOT_ID;
+  if (!message.guild || !message.author || message.author.id !== dynoBotId) return;
+
+  const leavingUsername = parseDynoLeaveUsername(message.content);
+  if (!leavingUsername) return;
+
+  const user = findMatchingUserForLeaveMessage(leavingUsername);
+  console.log(`[dyno-leave] detected leave message for ${leavingUsername}`);
+  try {
+    await sendByeImageToConfiguredChannel(message.guild, user, 'dyno-leave');
+  } catch (err) {
+    console.error('[dyno-leave] error generating bye image:', err);
   }
 });
 
