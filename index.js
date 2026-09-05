@@ -5,13 +5,19 @@ const path = require('path');
 const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const { execFileSync } = require('child_process');
 const DEFAULT_DYNO_BOT_ID = '155149108183695360';
+const RUNTIME_FONT_DIR = path.join(__dirname, '.runtime-fonts');
+const FALLBACK_FONT_FILE = 'ArchivoBlack-Regular.ttf';
+const FALLBACK_FONT_FAMILY = 'Archivo Black';
+const FALLBACK_FONT_URL = 'https://github.com/google/fonts/raw/main/ofl/archivoblack/ArchivoBlack-Regular.ttf';
 function isEnvToggleEnabled(value) {
   if (!value) return false;
   return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 const isDynoFallbackEnabled = isEnvToggleEnabled(process.env.ENABLE_DYNO_LEAVE_FALLBACK);
+const textFontFamilyPromise = resolveTextFontFamilyOnLinux();
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -27,7 +33,6 @@ console.log('[env] DYNO_FALLBACK:', isDynoFallbackEnabled ? '✅ enabled' : '⏸
 if (isDynoFallbackEnabled) {
   console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
 }
-assertArialBlackAvailableOnLinux();
 
 // ── Health server ─────────────────────────────────────────────────────────────
 // uses PORT env var so Render.com can detect it
@@ -155,37 +160,64 @@ function escapeSvgText(text) {
     .replace(/'/g, '&#39;');
 }
 
-function assertArialBlackAvailableOnLinux() {
-  if (process.platform !== 'linux') return;
+function listLinuxFontFamilies() {
+  const fontFamilies = execFileSync('fc-list', [':', 'family'], { encoding: 'utf8' });
+  return new Set(
+    fontFamilies
+      .split('\n')
+      .flatMap((line) => line.split(','))
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+async function ensureFallbackFontDownloaded() {
+  await fs.mkdir(RUNTIME_FONT_DIR, { recursive: true });
+  const fontPath = path.join(RUNTIME_FONT_DIR, FALLBACK_FONT_FILE);
+  if (!fsSync.existsSync(fontPath)) {
+    const fontRes = await fetch(FALLBACK_FONT_URL);
+    if (!fontRes.ok) {
+      throw new Error(`font download failed: ${fontRes.status} ${fontRes.statusText}`);
+    }
+    await fs.writeFile(fontPath, Buffer.from(await fontRes.arrayBuffer()));
+  }
+  return fontPath;
+}
+
+async function resolveTextFontFamilyOnLinux() {
+  if (process.platform !== 'linux') return 'Arial Black';
 
   let fontFamilies;
   try {
-    fontFamilies = execFileSync('fc-list', [':', 'family'], {
-      encoding: 'utf8'
-    });
+    fontFamilies = listLinuxFontFamilies();
   } catch (err) {
-    throw new Error(
-      `Failed to check system fonts with fc-list: ${err.message}. Ensure fontconfig is installed because it provides the fc-list command.`
+    console.warn(
+      `[font] failed to check system fonts with fc-list: ${err.message}. Using sans-serif fallback.`
     );
+    return 'sans-serif';
   }
 
-  const hasArialBlack = fontFamilies
-    .split('\n')
-    .some((line) =>
-      line
-        .split(',')
-        .map((name) => name.trim().toLowerCase())
-        .includes('arial black')
-    );
+  if (fontFamilies.has('arial black')) return 'Arial Black';
 
-  if (!hasArialBlack) {
-    throw new Error(
-      'Required font "Arial Black" is not installed on this Linux host. Install it with your distro package manager (Ubuntu/Debian example: sudo apt install ttf-mscorefonts-installer) and restart the bot.'
-    );
+  console.warn('[font] Arial Black missing, downloading Archivo Black fallback...');
+  try {
+    await ensureFallbackFontDownloaded();
+    execFileSync('fc-cache', ['-f', RUNTIME_FONT_DIR], { stdio: 'ignore' });
+    const refreshedFamilies = listLinuxFontFamilies();
+    if (refreshedFamilies.has(FALLBACK_FONT_FAMILY.toLowerCase())) {
+      console.warn(`[font] using downloaded fallback font: ${FALLBACK_FONT_FAMILY}`);
+      return FALLBACK_FONT_FAMILY;
+    }
+  } catch (err) {
+    console.warn(`[font] failed to install fallback font: ${err.message}`);
   }
+
+  console.warn('[font] fallback font unavailable, using sans-serif.');
+  return 'sans-serif';
 }
 
 async function buildTextImage(username, width, height, offsetX, offsetY) {
+  const textFontFamily = await textFontFamilyPromise;
   let fontSize = 220;
   while (fontSize > 20 && username.length * fontSize * 0.6 >= 1800) {
     fontSize -= 10;
@@ -196,7 +228,7 @@ async function buildTextImage(username, width, height, offsetX, offsetY) {
     <svg width="2000" height="400">
       <style>
         text {
-          font-family: "Arial Black";
+          font-family: "${escapeSvgText(textFontFamily)}";
           font-size: ${fontSize}px;
           font-weight: 900;
           text-anchor: middle;

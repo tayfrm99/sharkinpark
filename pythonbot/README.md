@@ -39,3 +39,8 @@ PORT=10000
 ## Ping / health page
 
 The bot starts an HTTP server on `PORT` and serves a styled health page at `/` for uptime pings.
+
+## Linux font behavior
+
+On Linux, the bot uses **Arial Black** when available.  
+If it is missing, the bot downloads **Archivo Black** from Google Fonts and uses it as fallback.
