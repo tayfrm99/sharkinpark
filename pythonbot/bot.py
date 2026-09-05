@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -27,11 +28,16 @@ BASE_DIR = Path(__file__).resolve().parent
 DOTENV_PATH = BASE_DIR / ".env"
 TEMPLATE_PATH = BASE_DIR / "template.png"
 BYE_TEMPLATE_PATH = BASE_DIR / "bye-template.png"
+RUNTIME_FONT_DIR = BASE_DIR / ".runtime-fonts"
+FALLBACK_FONT_FILE = "ArchivoBlack-Regular.ttf"
+FALLBACK_FONT_FAMILY = "Archivo Black"
+FALLBACK_FONT_URL = "https://github.com/google/fonts/raw/main/ofl/archivoblack/ArchivoBlack-Regular.ttf"
 load_dotenv(DOTENV_PATH)
 
 recent_bye_keys: dict[str, int] = {}
 bye_template_fallback_warned = False
 commands_synced = False
+TEXT_FONT_FAMILY = "Arial Black"
 
 
 def is_env_toggle_enabled(value: Optional[str]) -> bool:
@@ -96,37 +102,57 @@ def start_health_server() -> None:
     print(f"[http] healthcheck server listening on port {port}")
 
 
-def assert_arial_black_available_on_linux() -> None:
+def list_linux_font_families() -> set[str]:
+    result = subprocess.run(
+        ["fc-list", ":", "family"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    families: set[str] = set()
+    for line in result.stdout.splitlines():
+        names = [name.strip().lower() for name in line.split(",")]
+        families.update(name for name in names if name)
+    return families
+
+
+def ensure_fallback_font_downloaded() -> Path:
+    RUNTIME_FONT_DIR.mkdir(parents=True, exist_ok=True)
+    font_path = RUNTIME_FONT_DIR / FALLBACK_FONT_FILE
+    if not font_path.exists():
+        with urllib.request.urlopen(FALLBACK_FONT_URL, timeout=30) as response:
+            if response.status != 200:
+                raise RuntimeError(f"font download failed with status {response.status}")
+            font_path.write_bytes(response.read())
+    return font_path
+
+
+def resolve_text_font_family_on_linux() -> str:
     if sys.platform != "linux":
-        return
+        return "Arial Black"
 
     try:
-        result = subprocess.run(
-            ["fc-list", ":", "family"],
-            check=True,
-            text=True,
-            capture_output=True,
-        )
-        font_families = result.stdout
+        font_families = list_linux_font_families()
     except Exception as err:
-        raise RuntimeError(
-            f"Failed to check system fonts with fc-list: {err}. "
-            "Ensure fontconfig is installed because it provides the fc-list command."
-        ) from err
+        print(f"[font] failed to check system fonts with fc-list: {err}. Using sans-serif fallback.")
+        return "sans-serif"
 
-    has_arial_black = False
-    for line in font_families.splitlines():
-        names = [name.strip().lower() for name in line.split(",")]
-        if "arial black" in names:
-            has_arial_black = True
-            break
+    if "arial black" in font_families:
+        return "Arial Black"
 
-    if not has_arial_black:
-        raise RuntimeError(
-            'Required font "Arial Black" is not installed on this Linux host. '
-            "Install it with your distro package manager (Ubuntu/Debian example: "
-            "sudo apt install ttf-mscorefonts-installer) and restart the bot."
-        )
+    print("[font] Arial Black missing, downloading Archivo Black fallback...")
+    try:
+        ensure_fallback_font_downloaded()
+        subprocess.run(["fc-cache", "-f", str(RUNTIME_FONT_DIR)], check=True, capture_output=True)
+        refreshed_families = list_linux_font_families()
+        if FALLBACK_FONT_FAMILY.lower() in refreshed_families:
+            print(f"[font] using downloaded fallback font: {FALLBACK_FONT_FAMILY}")
+            return FALLBACK_FONT_FAMILY
+    except Exception as err:
+        print(f"[font] failed to install fallback font: {err}")
+
+    print("[font] fallback font unavailable, using sans-serif.")
+    return "sans-serif"
 
 
 @dataclass
@@ -219,7 +245,7 @@ async def build_text_image(username: str, width: int, height: int, offset_x: int
     <svg width="2000" height="400">
       <style>
         text {{
-          font-family: "Arial Black";
+          font-family: "{escape_svg_text(TEXT_FONT_FAMILY)}";
           font-size: {font_size}px;
           font-weight: 900;
           text-anchor: middle;
@@ -424,7 +450,7 @@ if IS_DYNO_FALLBACK_ENABLED:
         dyno_bot_display = "✅ set"
     print("[env] DYNO_BOT_ID:", dyno_bot_display)
 
-assert_arial_black_available_on_linux()
+TEXT_FONT_FAMILY = resolve_text_font_family_on_linux()
 start_health_server()
 
 print("[discord] creating client...")
