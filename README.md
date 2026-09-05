@@ -15,8 +15,8 @@ Template files in repository root:
 
 ### Linux font requirement
 
-On Linux, this bot now requires the **Arial Black** system font.  
-If Arial Black is not installed, the process exits with an error instead of falling back to another font.
+On Linux, the bot prefers **Arial Black** and automatically falls back to
+`Liberation Sans`, `DejaVu Sans`, or `Noto Sans` if needed.
 
 1. Create `.env`:
    ```env

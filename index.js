@@ -7,11 +7,13 @@ const http = require('http');
 const fs = require('fs/promises');
 const { execFileSync } = require('child_process');
 const DEFAULT_DYNO_BOT_ID = '155149108183695360';
+const PREFERRED_FONT_FAMILIES = ['Arial Black', 'Liberation Sans', 'DejaVu Sans', 'Noto Sans'];
 function isEnvToggleEnabled(value) {
   if (!value) return false;
   return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 const isDynoFallbackEnabled = isEnvToggleEnabled(process.env.ENABLE_DYNO_LEAVE_FALLBACK);
+const activeFontFamily = resolveFontFamily();
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 console.log('========================================');
@@ -27,7 +29,7 @@ console.log('[env] DYNO_FALLBACK:', isDynoFallbackEnabled ? '✅ enabled' : '⏸
 if (isDynoFallbackEnabled) {
   console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
 }
-assertArialBlackAvailableOnLinux();
+console.log(`[font] using "${activeFontFamily}"`);
 
 // ── Health server ─────────────────────────────────────────────────────────────
 // uses PORT env var so Render.com can detect it
@@ -155,8 +157,8 @@ function escapeSvgText(text) {
     .replace(/'/g, '&#39;');
 }
 
-function assertArialBlackAvailableOnLinux() {
-  if (process.platform !== 'linux') return;
+function resolveFontFamily() {
+  if (process.platform !== 'linux') return PREFERRED_FONT_FAMILIES[0];
 
   let fontFamilies;
   try {
@@ -169,20 +171,30 @@ function assertArialBlackAvailableOnLinux() {
     );
   }
 
-  const hasArialBlack = fontFamilies
-    .split('\n')
-    .some((line) =>
-      line
-        .split(',')
-        .map((name) => name.trim().toLowerCase())
-        .includes('arial black')
-    );
+  const availableFamilies = new Set(
+    fontFamilies
+      .split('\n')
+      .flatMap((line) =>
+        line
+          .split(',')
+          .map((name) => name.trim().toLowerCase())
+          .filter(Boolean)
+      )
+  );
 
-  if (!hasArialBlack) {
-    throw new Error(
-      'Required font "Arial Black" is not installed on this Linux host. Install it with your distro package manager (Ubuntu/Debian example: sudo apt install ttf-mscorefonts-installer) and restart the bot.'
-    );
+  for (const preferredFamily of PREFERRED_FONT_FAMILIES) {
+    if (availableFamilies.has(preferredFamily.toLowerCase())) {
+      return preferredFamily;
+    }
   }
+
+  const availableSample = [...availableFamilies]
+    .slice(0, 8)
+    .join(', ');
+
+  throw new Error(
+    `No supported fonts found on this Linux host. Install one of: ${PREFERRED_FONT_FAMILIES.join(', ')}. Available sample: ${availableSample || 'none'}.`
+  );
 }
 
 async function buildTextImage(username, width, height, offsetX, offsetY) {
@@ -196,7 +208,7 @@ async function buildTextImage(username, width, height, offsetX, offsetY) {
     <svg width="2000" height="400">
       <style>
         text {
-          font-family: "Arial Black";
+          font-family: "${activeFontFamily}";
           font-size: ${fontSize}px;
           font-weight: 900;
           text-anchor: middle;
