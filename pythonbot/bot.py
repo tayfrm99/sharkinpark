@@ -16,8 +16,6 @@ import pyvips
 from discord import app_commands
 from dotenv import load_dotenv
 
-load_dotenv()
-
 DEFAULT_DYNO_BOT_ID = "155149108183695360"
 DEDUPE_WINDOW_MS = 30000
 DEDUPE_CACHE_SIZE = 500
@@ -25,9 +23,11 @@ DYNO_LEAVE_SUFFIX = " has left the server. Their loss."
 DYNO_LEAVE_SUFFIX_LOWER = DYNO_LEAVE_SUFFIX.lower()
 DISCORD_DEFAULT_AVATAR_OPTIONS = 6
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
+DOTENV_PATH = BASE_DIR / ".env"
 TEMPLATE_PATH = BASE_DIR / "template.png"
 BYE_TEMPLATE_PATH = BASE_DIR / "bye-template.png"
+load_dotenv(DOTENV_PATH)
 
 recent_bye_keys: dict[str, int] = {}
 bye_template_fallback_warned = False
@@ -45,9 +45,41 @@ IS_DYNO_FALLBACK_ENABLED = is_env_toggle_enabled(os.getenv("ENABLE_DYNO_LEAVE_FA
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        body = b"i am alive burrp weasel.pages.dev"
+        body = b"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sharkinpark bot</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+      background: radial-gradient(circle at top, #202637, #0d0f14 55%);
+      color: #f5f7ff;
+    }
+    main {
+      padding: 1.25rem 1.5rem;
+      border: 1px solid #2d3550;
+      border-radius: 14px;
+      background: rgba(9, 13, 21, 0.72);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+  </style>
+</head>
+<body>
+  <main>i am alive burrp weasel.pages.dev</main>
+</body>
+</html>
+"""
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
