@@ -1,0 +1,6 @@
+name = "sharkinpark-cloudflare-runner"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+[observability.logs]
+enabled = true
