@@ -1,0 +1,4 @@
+discord.py==2.6.2
+aiohttp==3.12.15
+python-dotenv==1.1.1
+pyvips==2.2.3
