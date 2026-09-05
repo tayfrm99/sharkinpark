@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     autoDeploy: true
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /
     envVars:
@@ -12,3 +12,9 @@ services:
         sync: false
       - key: CHANNEL_ID
         sync: false
+      - key: ENABLE_DYNO_LEAVE_FALLBACK
+        value: "false"
+      - key: DYNO_BOT_ID
+        value: "155149108183695360"
+      - key: PORT
+        value: "10000"

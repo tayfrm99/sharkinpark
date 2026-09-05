@@ -40,6 +40,20 @@ If Arial Black is not installed, the process exits with an error instead of fall
 - Enable **Server Members Intent**
 - Enable **Message Content Intent** only if `ENABLE_DYNO_LEAVE_FALLBACK=true`
 
+## Deploy on Render
+
+1. Push this repository to GitHub.
+2. In Render, create a **Web Service** and connect this repository.
+3. Render will detect `render.yaml` and provision the service automatically.
+4. Set required environment variables in Render:
+   - `TOKEN` (Discord bot token)
+   - `CHANNEL_ID` (target channel ID)
+5. Optional environment variables:
+   - `ENABLE_DYNO_LEAVE_FALLBACK` (`true` or `false`)
+   - `DYNO_BOT_ID` (defaults to `155149108183695360`)
+   - `PORT` (defaults to `10000`)
+6. Deploy and keep the Render service running.
+
 ## One-command Azure VM install (Ubuntu/Debian)
 
 From repository root:
