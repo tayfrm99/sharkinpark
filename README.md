@@ -63,3 +63,9 @@ After install, edit `.env` with real Discord values if still placeholders, then 
 sudo systemctl restart sharkinpark-bot
 sudo systemctl --no-pager --full status sharkinpark-bot
 ```
+
+## Cloudflare runner version
+
+A Cloudflare Worker rewrite is available in `/home/runner/work/sharkinpark/sharkinpark/cloudflare-runner`.
+
+See `/home/runner/work/sharkinpark/sharkinpark/cloudflare-runner/README.md` for setup, required secrets, command registration, and event relay endpoints.
