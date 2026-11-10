@@ -21,11 +21,16 @@ If it is missing, the bot automatically downloads **Archivo Black** from Google 
 1. Create `.env`:
    ```env
    TOKEN=your_discord_bot_token
+   CHANNEL_IDS={"guild-id-1":"channel-id-1","guild-id-2":"channel-id-2"}
    CHANNEL_ID=your_channel_id
    ENABLE_DYNO_LEAVE_FALLBACK=false
    DYNO_BOT_ID=155149108183695360
    PORT=10000
    ```
+   `CHANNEL_IDS` is recommended when the bot is in multiple servers. It maps
+   each Discord server (guild) ID to its welcome/bye channel. If `CHANNEL_IDS`
+   is set, servers missing from the mapping are skipped. `CHANNEL_ID` remains
+   available as a single-server legacy fallback.
 2. Install dependencies:
    ```bash
    npm install

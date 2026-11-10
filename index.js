@@ -28,7 +28,8 @@ console.log('========================================');
 
 // ── Env var check ─────────────────────────────────────────────────────────────
 console.log('[env] TOKEN     :', process.env.TOKEN     ? '✅ set' : '❌ MISSING');
-console.log('[env] CHANNEL_ID:', process.env.CHANNEL_ID ? '✅ set' : '❌ MISSING');
+console.log('[env] CHANNEL_IDS:', process.env.CHANNEL_IDS ? '✅ per-server config set' : '⏸️ not set');
+console.log('[env] CHANNEL_ID :', process.env.CHANNEL_ID ? '✅ legacy fallback set' : '⏸️ not set');
 console.log('[env] DYNO_FALLBACK:', isDynoFallbackEnabled ? '✅ enabled' : '⏸️ disabled');
 if (isDynoFallbackEnabled) {
   console.log('[env] DYNO_BOT_ID:', process.env.DYNO_BOT_ID ? '✅ set' : `⚠️ using default (${DEFAULT_DYNO_BOT_ID})`);
@@ -351,12 +352,72 @@ function shouldSendByeForKey(key) {
   return !previous || now - previous > DEDUPE_WINDOW_MS;
 }
 
-async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
-  const channelId = process.env.CHANNEL_ID;
-  if (!channelId) {
-    console.warn(`[${sourceLabel}] CHANNEL_ID is not set, skipping bye`);
-    return;
+// CHANNEL_IDS is a JSON object mapping each Discord guild ID to its channel ID.
+// When present, guilds without an entry are intentionally skipped.
+const hasPerGuildChannelConfig = Boolean(process.env.CHANNEL_IDS?.trim());
+let perGuildChannelIds = {};
+
+if (hasPerGuildChannelConfig) {
+  try {
+    perGuildChannelIds = JSON.parse(process.env.CHANNEL_IDS);
+    if (
+      !perGuildChannelIds ||
+      typeof perGuildChannelIds !== 'object' ||
+      Array.isArray(perGuildChannelIds)
+    ) {
+      throw new Error('CHANNEL_IDS must be a JSON object keyed by Discord server ID');
+    }
+  } catch (err) {
+    console.error('[config] Invalid CHANNEL_IDS:', err.message);
+    perGuildChannelIds = {};
   }
+}
+
+async function getConfiguredChannel(guild, sourceLabel) {
+  const channelId = hasPerGuildChannelConfig
+    ? perGuildChannelIds[guild.id]
+    : process.env.CHANNEL_ID;
+
+  if (!channelId) {
+    console.warn(`[${sourceLabel}] No channel configured for ${guild.name} (${guild.id}), skipping`);
+    return null;
+  }
+
+  try {
+    const channel = await guild.channels.fetch(channelId);
+
+    if (!channel || typeof channel.send !== 'function') {
+      console.warn(`[${sourceLabel}] Channel ${channelId} in ${guild.name} is not a sendable text channel`);
+      return null;
+    }
+
+    const permissions = channel.permissionsFor(client.user);
+    if (permissions && !permissions.has(['ViewChannel', 'SendMessages', 'AttachFiles'])) {
+      console.warn(
+        `[${sourceLabel}] Missing View Channel, Send Messages, or Attach Files permission in ${channelId} (${guild.name})`
+      );
+      return null;
+    }
+
+    return channel;
+  } catch (err) {
+    if (err?.code === 50001 || err?.code === 50013 || err?.status === 403) {
+      console.error(
+        `[${sourceLabel}] Bot cannot access channel ${channelId} in ${guild.name}. ` +
+        `Check the channel ID and bot permissions. Discord error: ${err.code ?? err.message}`
+      );
+    } else if (err?.code === 10003) {
+      console.error(`[${sourceLabel}] Channel ${channelId} does not exist or is not in ${guild.name}.`);
+    } else {
+      console.error(`[${sourceLabel}] Failed to fetch channel ${channelId} in ${guild.name}:`, err);
+    }
+    return null;
+  }
+}
+
+async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
+  const channel = await getConfiguredChannel(guild, sourceLabel);
+  if (!channel) return;
 
   const dedupeKey = buildByeDedupeKey(guild.id, user.username);
   if (!shouldSendByeForKey(dedupeKey)) {
@@ -367,21 +428,20 @@ async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
   const finalImage = await generateByeImage(user);
   const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
 
-  let channel = guild.channels.cache.get(channelId);
-  if (!channel) {
-    channel = await guild.channels.fetch(channelId).catch((err) => {
-      console.error(`[${sourceLabel}] failed to fetch channel ${channelId}:`, err);
-      return null;
-    });
+  try {
+    await channel.send({ files: [attachment] });
+    console.log(`[${sourceLabel}] bye image sent for ${user.tag ?? user.username}`);
+  } catch (err) {
+    if (err?.code === 50001 || err?.code === 50013) {
+      console.error(
+        `[${sourceLabel}] Cannot send bye image to channel ${channel.id} in ${guild.name}; ` +
+        `check Send Messages and Attach Files permissions:`,
+        err.message
+      );
+    } else {
+      throw err;
+    }
   }
-
-  if (!channel || typeof channel.send !== 'function') {
-    console.warn(`[${sourceLabel}] channel ${channelId} not found or not sendable, skipping bye`);
-    return;
-  }
-
-  await channel.send({ files: [attachment] });
-  console.log(`[${sourceLabel}] bye image sent for ${user.tag ?? user.username}`);
 }
 
 function parseDynoLeaveUsername(content) {
@@ -425,18 +485,28 @@ client.once('ready', async () => {
 client.on('guildMemberAdd', async (member) => {
   console.log(`[join] ${member.user.tag} joined ${member.guild.name}`);
   try {
+    const channel = await getConfiguredChannel(member.guild, 'join');
+    if (!channel) return;
+
     const finalImage = await generateWelcomeImage(member.user);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-    const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
 
-    if (channel) {
+    try {
       await channel.send({ files: [attachment] });
       console.log(`[join] welcome image sent for ${member.user.tag}`);
-    } else {
-      console.warn(`[join] channel ${process.env.CHANNEL_ID} not found, skipping welcome`);
+    } catch (err) {
+      if (err?.code === 50001 || err?.code === 50013) {
+        console.error(
+          `[join] Cannot send welcome image to channel ${channel.id} in ${member.guild.name}; ` +
+          `check Send Messages and Attach Files permissions:`,
+          err.message
+        );
+      } else {
+        throw err;
+      }
     }
   } catch (err) {
-    console.error('[join] error generating welcome image:', err);
+    console.error('[join] error handling welcome image:', err);
   }
 });
 
