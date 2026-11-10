@@ -351,47 +351,34 @@ function shouldSendByeForKey(key) {
   return !previous || now - previous > DEDUPE_WINDOW_MS;
 }
 
-async function getConfiguredChannel(guild, sourceLabel) {
+async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
   const channelId = process.env.CHANNEL_ID;
   if (!channelId) {
-    console.warn(`[${sourceLabel}] CHANNEL_ID is not set, skipping`);
-    return null;
+    console.warn(`[${sourceLabel}] CHANNEL_ID is not set, skipping bye`);
+    return;
   }
 
-  let channel = guild.channels.cache.get(channelId);
-  if (!channel) {
-    try {
-      channel = await guild.channels.fetch(channelId);
-    } catch (err) {
-      if (err?.code === 50001 || err?.status === 403) {
-        console.warn(`[${sourceLabel}] bot cannot access channel ${channelId} in ${guild.name}, skipping`);
-      } else {
-        console.error(`[${sourceLabel}] failed to fetch channel ${channelId}:`, err);
-      }
-      return null;
-    }
-  }
-
-  if (!channel || typeof channel.send !== 'function') {
-    console.warn(`[${sourceLabel}] channel ${channelId} not found or not sendable in ${guild.name}, skipping`);
-    return null;
-  }
-
-  return channel;
-}
-
-async function sendByeImageToConfiguredChannel(guild, user, sourceLabel) {
   const dedupeKey = buildByeDedupeKey(guild.id, user.username);
   if (!shouldSendByeForKey(dedupeKey)) {
     console.log(`[${sourceLabel}] duplicate bye detected for ${user.username}, skipping`);
     return;
   }
 
-  const channel = await getConfiguredChannel(guild, sourceLabel);
-  if (!channel) return;
-
   const finalImage = await generateByeImage(user);
   const attachment = new AttachmentBuilder(finalImage, { name: 'bye.png' });
+
+  let channel = guild.channels.cache.get(channelId);
+  if (!channel) {
+    channel = await guild.channels.fetch(channelId).catch((err) => {
+      console.error(`[${sourceLabel}] failed to fetch channel ${channelId}:`, err);
+      return null;
+    });
+  }
+
+  if (!channel || typeof channel.send !== 'function') {
+    console.warn(`[${sourceLabel}] channel ${channelId} not found or not sendable, skipping bye`);
+    return;
+  }
 
   await channel.send({ files: [attachment] });
   console.log(`[${sourceLabel}] bye image sent for ${user.tag ?? user.username}`);
@@ -438,13 +425,16 @@ client.once('ready', async () => {
 client.on('guildMemberAdd', async (member) => {
   console.log(`[join] ${member.user.tag} joined ${member.guild.name}`);
   try {
-    const channel = await getConfiguredChannel(member.guild, 'join');
-    if (!channel) return;
-
     const finalImage = await generateWelcomeImage(member.user);
     const attachment = new AttachmentBuilder(finalImage, { name: 'welcome.png' });
-    await channel.send({ files: [attachment] });
-    console.log(`[join] welcome image sent for ${member.user.tag}`);
+    const channel = member.guild.channels.cache.get(process.env.CHANNEL_ID);
+
+    if (channel) {
+      await channel.send({ files: [attachment] });
+      console.log(`[join] welcome image sent for ${member.user.tag}`);
+    } else {
+      console.warn(`[join] channel ${process.env.CHANNEL_ID} not found, skipping welcome`);
+    }
   } catch (err) {
     console.error('[join] error generating welcome image:', err);
   }
